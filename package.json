@@ -18,7 +18,9 @@
   },
   "scripts": {
     "start": "node cli.js",
-    "build": "bun build ./cli.js --compile --outfile dist/tp"
+    "build-win": "bun build ./cli.js --compile --outfile dist/tp",
+    "build-linux": "bun build ./cli.js --compile --target=bun-linux-x64 --outfile dist/tp-linux",
+    "build-mac": "bun build ./cli.js --compile --target=bun-darwin-x64 --outfile dist/tp-macos"
   },
   "dependencies": {
     "clipboardy": "^5.0.0",

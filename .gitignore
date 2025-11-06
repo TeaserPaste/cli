@@ -1,6 +1,3 @@
-*.iss
 Output/
 dist/
 node_modules/
-tmp/
-assets/

@@ -1,2 +1,6 @@
 .github/*
 node_modules/
+*.iss
+assets/
+dist/
+Output/
