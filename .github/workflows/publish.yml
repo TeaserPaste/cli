@@ -2,13 +2,11 @@ name: Publish to NPM via OIDC
 
 on:
   push:
-    branches:
-      - main
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+*'
+      - 'v*'
 
 env:
-  NODE_VERSION: 22
+  NODE_VERSION: 20
   
 permissions:
   contents: read
@@ -25,7 +23,7 @@ jobs:
       
       # 1. Cấu hình môi trường Node.js và NPM Registry
       - name: Setup Node.js & Configure Registry
-        uses: actions/setup-node@v6.0.0
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
@@ -37,7 +35,7 @@ jobs:
       # 4. Publish gói NPM
       - name: Publish to NPM
         # Tự động xác thực bằng OIDC
-        run: npm publish --access public
+        run: npm publish
 
       # 5. Dọn dẹp cục bộ
       - name: Clean up local artifacts
