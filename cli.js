@@ -29,7 +29,8 @@ function readFromStdin() {
 
 // Gọi API
 async function apiRequest(endpoint, method, body, token = null) {
-    const finalToken = token || ConfigManager.getToken();
+    const configToken = await ConfigManager.getToken();
+    const finalToken = token || configToken;
     const headers = { 'Content-Type': 'application/json' };
     if (finalToken) { headers['Authorization'] = `Bearer ${finalToken}`; }
     logger.log(`API Request: ${method} ${BASE_API_URL}${endpoint}`);
@@ -177,13 +178,21 @@ async function createSnippet(token, args) {
                 { type: 'input', name: 'password', message: 'Mật khẩu (nếu cần):', when: (ans) => ans.visibility === 'unlisted' },
                 { type: 'input', name: 'tags', message: 'Tags (phân cách bởi dấu phẩy):' },
                 { type: 'input', name: 'expires', message: 'Thời gian hết hạn (ví dụ: 1h, 7d, 2w):' },
-                { type: 'list', name: 'contentSource', message: 'Nguồn nội dung:', choices: ['Soạn thảo (mở Notepad, Vim,...)', 'Nhập từ file'], default: 0 },
+                { type: 'list', name: 'contentSource', message: 'Nguồn nội dung:', choices: ['Soạn thảo (mở Notepad, Vim,...)', 'Nhập từ file', 'Soạn thảo (In-Terminal) [Beta]'], default: 0 },
             ]);
             if (answers.contentSource === 'Nhập từ file') {
                 const { filePath } = await inquirer.prompt([{ type: 'input', name: 'filePath', message: 'Đường dẫn đến file:' }]);
                 if (!fs.existsSync(filePath)) throw new Error(`File không tồn tại: ${filePath}`);
                 answers.content = fs.readFileSync(filePath, 'utf-8');
                 const fileExt = path.extname(filePath);
+            } else if (answers.contentSource === 'Soạn thảo (In-Terminal) [Beta]') {
+                const { editorContent } = await inquirer.prompt([{
+                    type: 'editor',
+                    name: 'editorContent',
+                    message: 'Nhập nội dung snippet của bạn. Lưu và đóng để tiếp tục.',
+                    waitForUserInput: true,
+                }]);
+                answers.content = editorContent;
                 const langFromFile = getLangFromExtension(fileExt);
                 if (langFromFile !== 'plaintext' && answers.language !== langFromFile) {
                     const { confirmChange } = await inquirer.prompt([{
@@ -293,24 +302,184 @@ async function deleteSnippet(id, token) {
     }
 }
 
-async function searchSnippets(term, token) {
+async function searchSnippets(term, token, args) {
     if (!term) {
         console.error('\n❌ Lỗi: Thiếu từ khóa cho lệnh \'search\'.\n');
         return;
     }
     try {
-        console.log(`\nĐang tìm kiếm với từ khóa "${term}"...`);
-        const results = await apiRequest('/searchSnippets', 'POST', { term }, token);
-        if (!results || results.length === 0) {
+        const parsedArgs = parseArgs(args);
+        const limit = parsedArgs.limit ? parseInt(parsedArgs.limit, 10) : 10;
+        const from = parsedArgs.from ? parseInt(parsedArgs.from, 10) : 0;
+        console.log(`\nĐang tìm kiếm với từ khóa "${term}" (limit: ${limit}, from: ${from})...`);
+        const results = await apiRequest('/searchSnippets', 'POST', {
+            term,
+            size: limit,
+            from
+        }, token);
+        if (!results || !results.hits || results.hits.length === 0) {
             console.log('\nKhông tìm thấy kết quả nào phù hợp.\n');
             return;
         }
-        console.log('\nKết quả tìm kiếm:');
-        console.table(results.map(s => ({ ID: s.id, TITLE: s.title, CREATOR: s.creatorName, LANGUAGE: s.language })));
-    } catch (error) { console.error(`\n❌ Lỗi: ${error.message}\n`); }
+        console.log(`\nTìm thấy tổng cộng ${results.total} kết quả. Đang hiển thị ${results.hits.length} kết quả:`);
+        console.table(results.hits.map(hit => ({
+            ID: hit.id,
+            TITLE: hit.title,
+            CREATOR: hit.creatorName,
+            LANGUAGE: hit.language,
+        })));
+    } catch (error) {
+        console.error(`\n❌ Lỗi: ${error.message}\n`);
+    }
 }
 
-function manageConfig(args) {
+async function copySnippet(id, token, args) {
+    if (!id) {
+        console.error('\n❌ Lỗi: Thiếu ID snippet cho lệnh \'copy\'.\n');
+        return;
+    }
+    const configToken = await ConfigManager.getToken();
+    const finalToken = token || configToken;
+    if (!finalToken) {
+        console.error('\n❌ Lỗi: Lệnh \'copy\' yêu cầu xác thực. Vui lòng dùng `tp config set token <token>` hoặc cung cấp `--token`.\n');
+        return;
+    }
+    try {
+        const parsedArgs = parseArgs(args);
+        console.log(`\nĐang lấy nội dung snippet gốc '${id}'...`);
+        const sourceSnippet = await apiRequest('/getSnippet', 'POST', { snippetId: id, password: parsedArgs.password }, finalToken);
+        console.log('Lấy snippet gốc thành công.');
+        const newSnippetData = {
+            title: sourceSnippet.title,
+            content: sourceSnippet.content,
+            language: sourceSnippet.language,
+            visibility: sourceSnippet.visibility,
+            tags: sourceSnippet.tags || [],
+        };
+        const overrides = {
+            title: parsedArgs.title,
+            visibility: parsedArgs.visibility,
+            password: parsedArgs.password,
+            tags: parsedArgs.tags,
+            expires: parsedArgs.expires,
+        };
+        Object.keys(overrides).forEach(key => {
+            if (overrides[key] === undefined) {
+                delete overrides[key];
+            }
+        });
+        if (overrides.password && !overrides.visibility) {
+            overrides.visibility = 'unlisted';
+        }
+        const finalSnippetData = { ...newSnippetData, ...overrides };
+        if (typeof finalSnippetData.tags === 'string') {
+            finalSnippetData.tags = finalSnippetData.tags.split(',').map(t => t.trim()).filter(Boolean);
+        }
+        console.log('Đang tạo snippet mới trên tài khoản của bạn...');
+        const newSnippet = await apiRequest('/createSnippet', 'POST', finalSnippetData, finalToken);
+        console.log(`\n✅ Đã sao chép thành công! ID snippet mới: ${newSnippet.id}\n`);
+        const url = `${BASE_WEB_URL}/snippet/${newSnippet.id}`;
+        console.log(`URL: ${url}\n`);
+    } catch (error) {
+        console.error(`\n❌ Lỗi khi sao chép snippet: ${error.message}\n`);
+    }
+}
+
+async function runSnippet(id, customStartup, token, args) {
+    if (!id) {
+        console.error('\n❌ Lỗi: Thiếu ID snippet cho lệnh \'run\'.\n');
+        return;
+    }
+    const inquirer = await getInquirer();
+    const { confirm } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'confirm',
+        message: '⚠️ Cảnh báo: Bạn sắp thực thi mã từ internet. Điều này có thể gây nguy hiểm. Bạn có chắc chắn muốn tiếp tục?',
+        default: false,
+    }]);
+    if (!confirm) {
+        console.log('\nĐã hủy bỏ thao tác.\n');
+        return;
+    }
+    let tempFile = '';
+    try {
+        const parsedArgs = parseArgs(args);
+        const snippet = await apiRequest('/getSnippet', 'POST', { snippetId: id, password: parsedArgs.password }, token);
+        const extension = getFileExtension(snippet.language);
+        tempFile = path.join(os.tmpdir(), `tp-run-${Date.now()}${extension}`);
+        fs.writeFileSync(tempFile, snippet.content);
+        let command;
+        let commandArgs;
+        if (customStartup) {
+            const startupParts = customStartup.split(' ');
+            const snippetIndex = startupParts.indexOf('--snippet');
+            if (snippetIndex > -1) {
+                startupParts[snippetIndex] = tempFile;
+            } else {
+                startupParts.push(tempFile);
+            }
+            command = startupParts[0];
+            commandArgs = startupParts.slice(1);
+        } else {
+            const lang = snippet.language ? snippet.language.toLowerCase() : 'plaintext';
+            const langToCommand = {
+                python: 'python',
+                javascript: 'node',
+                shell: 'bash',
+                typescript: 'ts-node',
+                ruby: 'ruby',
+                perl: 'perl',
+                php: 'php',
+                go: 'go run',
+                rust: 'rustc',
+            };
+            if (!langToCommand[lang]) {
+                throw new Error(`Ngôn ngữ '${snippet.language}' không được hỗ trợ để chạy tự động. Vui lòng cung cấp lệnh tùy chỉnh.`);
+            }
+            if (lang === 'rust') {
+                command = 'rustc';
+                commandArgs = [tempFile, '-o', tempFile.replace('.rs', '')];
+            } else {
+                const parts = langToCommand[lang].split(' ');
+                command = parts[0];
+                commandArgs = [...parts.slice(1), tempFile];
+            }
+        }
+        console.log(`\n> Đang chạy: ${command} ${commandArgs.join(' ')}\n`);
+        const child = spawn(command, commandArgs, { stdio: 'inherit' });
+        child.on('close', (code) => {
+            console.log(`\n> Quá trình kết thúc với mã thoát: ${code}\n`);
+            if (snippet.language === 'rust' && code === 0) {
+                const exePath = tempFile.replace('.rs', '');
+                console.log(`> Biên dịch thành công. Đang chạy file thực thi: ./${path.basename(exePath)}\n`);
+                const runChild = spawn(exePath, [], { stdio: 'inherit' });
+                runChild.on('close', (runCode) => {
+                    console.log(`\n> Quá trình thực thi kết thúc với mã thoát: ${runCode}\n`);
+                    fs.unlinkSync(exePath);
+                });
+            }
+            if (fs.existsSync(tempFile)) {
+                fs.unlinkSync(tempFile);
+                logger.log(`Đã xóa file tạm: ${tempFile}`);
+            }
+        });
+        child.on('error', (err) => {
+            console.error(`\n❌ Lỗi khi thực thi: ${err.message}\n`);
+            if (fs.existsSync(tempFile)) {
+                fs.unlinkSync(tempFile);
+                logger.log(`Đã xóa file tạm: ${tempFile}`);
+            }
+        });
+    } catch (error) {
+        console.error(`\n❌ Lỗi: ${error.message}\n`);
+        if (tempFile && fs.existsSync(tempFile)) {
+            fs.unlinkSync(tempFile);
+            logger.log(`Đã xóa file tạm sau lỗi: ${tempFile}`);
+        }
+    }
+}
+
+async function manageConfig(args) {
     const [action, key, value] = args;
     if (!action) {
         console.log(`\nSử dụng: tp config <set|get|clear> token [value]\n`);
@@ -318,16 +487,31 @@ function manageConfig(args) {
     }
     switch (action.toLowerCase()) {
         case 'set':
-            if (key === 'token' && value) { try { ConfigManager.setToken(value); console.log('\n✅ Token đã được lưu!\n'); } catch (error) { console.error(`\n❌ Lỗi: ${error.message}\n`); } } 
-            else { console.error('\n❌ Lỗi: Cú pháp sai. Dùng: tp config set token <your_private_token>\n'); }
+            if (key === 'token' && value) {
+                try {
+                    await ConfigManager.setToken(value);
+                    console.log('\n✅ Token đã được lưu an toàn!\n');
+                } catch (error) {
+                    console.error(`\n❌ Lỗi: ${error.message}\n`);
+                }
+            } else {
+                console.error('\n❌ Lỗi: Cú pháp sai. Dùng: tp config set token <your_private_token>\n');
+            }
             break;
         case 'get':
-            if (key === 'token') { const token = ConfigManager.getToken(); console.log(token ? `\n🔑 Token hiện tại: ${token}\n` : '\nBạn chưa thiết lập token nào.\n'); }
+            if (key === 'token') {
+                const token = await ConfigManager.getToken();
+                console.log(token ? `\n🔑 Token hiện tại: ${token}\n` : '\nBạn chưa thiết lập token nào.\n');
+            }
             break;
         case 'clear':
-            if (key === 'token') { ConfigManager.clearToken(); console.log('\n✅ Token đã được xóa.\n'); }
+            if (key === 'token') {
+                await ConfigManager.clearToken();
+                console.log('\n✅ Token đã được xóa.\n');
+            }
             break;
-        default: console.error(`\n❌ Lỗi: Hành động '${action}' không hợp lệ.\n`);
+        default:
+            console.error(`\n❌ Lỗi: Hành động '${action}' không hợp lệ.\n`);
     }
 }
 
@@ -359,6 +543,8 @@ Sử dụng:
 Các lệnh:
   view <id>                 Xem một snippet.
   clone <id> [filename]     Tải nội dung snippet về thành một file.
+  copy <id>                 Sao chép (fork) một snippet vào tài khoản của bạn.
+  run <id> [lệnh]           Thực thi snippet (ví dụ: "node --snippet").
   list                      Liệt kê các snippet của bạn.
   create                    Tạo một snippet mới.
   update <id>               Cập nhật một snippet đã có.
@@ -424,7 +610,9 @@ async function main() {
             case 'list': await listSnippets(token, rawArgs); break;
             case 'update': await updateSnippet(subArgs[0], token, rawArgs); break;
             case 'delete': await deleteSnippet(subArgs[0], token); break;
-            case 'search': await searchSnippets(subArgs[0], token); break;
+            case 'search': await searchSnippets(subArgs[0], token, rawArgs); break;
+            case 'copy': await copySnippet(subArgs[0], token, rawArgs); break;
+            case 'run': await runSnippet(subArgs[0], subArgs.slice(1).join(' '), token, rawArgs); break;
             default:
                 console.error(`\n❌ Lỗi: Lệnh '${command}' không tồn tại.\n`);
                 showHelp();
