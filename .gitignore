@@ -1,4 +1,3 @@
-.npmignore 
 *.iss
 Output/
 dist/

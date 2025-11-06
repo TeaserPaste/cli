@@ -431,7 +431,7 @@ async function runSnippet(id, customStartup, token, args) {
                 perl: 'perl',
                 php: 'php',
                 go: 'go run',
-                rust: 'rustc',
+                rust: 'rustc', 
             };
             if (!langToCommand[lang]) {
                 throw new Error(`Ngôn ngữ '${snippet.language}' không được hỗ trợ để chạy tự động. Vui lòng cung cấp lệnh tùy chỉnh.`);
@@ -455,7 +455,7 @@ async function runSnippet(id, customStartup, token, args) {
                 const runChild = spawn(exePath, [], { stdio: 'inherit' });
                 runChild.on('close', (runCode) => {
                     console.log(`\n> Quá trình thực thi kết thúc với mã thoát: ${runCode}\n`);
-                    fs.unlinkSync(exePath);
+                    fs.unlinkSync(exePath); 
                 });
             }
             if (fs.existsSync(tempFile)) {
@@ -535,7 +535,7 @@ function parseArgs(argv) {
 
 function showHelp() {
     console.log(`
---- CLI TeaserPaste (v0.4.2) ---
+--- CLI TeaserPaste (v0.5.1) ---
 
 Sử dụng: 
   tp <lệnh> [tham số] [tùy chọn]

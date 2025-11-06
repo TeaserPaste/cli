@@ -1,7 +1,7 @@
 # TeaserPaste CLI (`tp`)
 **TeaserPaste CLI** (`tp`) là một công cụ dòng lệnh mạnh mẽ giúp bạn tương tác với dịch vụ [TeaserPaste](https://paste.teaserverse.online) trực tiếp từ terminal. Dễ dàng xem, tạo, và quản lý snippets mà không cần rời khỏi môi trường làm việc của bạn.
 
-**Phiên bản hiện tại:** 0.5.0 (Beta) - *Vui lòng lưu ý rằng các tính năng và cú pháp có thể thay đổi.*
+**Phiên bản hiện tại:** 0.5.1 (Beta) - *Vui lòng lưu ý rằng các tính năng và cú pháp có thể thay đổi.*
 
 # Cài đặt
 
