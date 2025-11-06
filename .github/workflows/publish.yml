@@ -1,0 +1,48 @@
+name: Publish to NPM via OIDC
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+env:
+  NODE_VERSION: 22
+  
+permissions:
+  contents: read
+  id-token: write # Cần thiết cho OIDC (Trusted Publishing)
+  packages: write
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      # 1. Cấu hình môi trường Node.js và NPM Registry
+      - name: Setup Node.js & Configure Registry
+        uses: actions/setup-node@v6.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+
+      # 2. Cài đặt dependency sạch sẽ và ổn định
+      - name: Clean Install Dependencies (npm ci)
+        run: npm ci
+
+      # 3. Chạy kiểm thử (Không bắt buộc, nhưng nên có)
+      - name: Run Tests
+        run: npm test
+
+      # 4. Publish gói NPM
+      - name: Publish to NPM
+        # Tự động xác thực bằng OIDC
+        run: npm publish --access public
+
+      # 5. Dọn dẹp cục bộ
+      - name: Clean up local artifacts
+        run: rm -rf node_modules
