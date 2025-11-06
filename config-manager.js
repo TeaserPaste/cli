@@ -1,70 +1,61 @@
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 const logger = require('./logger');
+const SERVICE_NAME = 'TeaserPasteCLI';
+const ACCOUNT_NAME = 'api_token';
 
-const configDir = path.join(os.homedir(), '.config', 'teaserpaste-cli');
-const configFile = path.join(configDir, 'config.json');
-
-function readConfig() {
+let keytar;
+async function getKeytar() {
+    if (keytar) return keytar;
     try {
-        logger.log(`readConfig: Đang kiểm tra file tại ${configFile}`);
-        if (!fs.existsSync(configFile)) {
-            logger.log(`readConfig: File không tồn tại. Trả về object rỗng.`);
-            return {};
-        }
-        logger.log(`readConfig: File tồn tại. Đang đọc...`);
-        const rawData = fs.readFileSync(configFile, 'utf-8');
-        const parsedData = JSON.parse(rawData);
-        logger.log(`readConfig: Đọc và parse JSON thành công.`);
-        return parsedData;
+        keytar = await import('keytar');
+        return keytar;
     } catch (err) {
-        logger.error('readConfig: ĐÃ XẢY RA LỖI!', err);
-        return {};
+        logger.error('Không thể tải thư viện keytar. Token sẽ không được lưu trữ an toàn.', err);
+        return null;
     }
 }
-
-function writeConfig(data) {
-    try {
-        logger.log(`writeConfig: Đang kiểm tra thư mục tại ${configDir}`);
-        if (!fs.existsSync(configDir)) {
-            logger.log(`writeConfig: Thư mục không tồn tại. Đang tạo...`);
-            fs.mkdirSync(configDir, { recursive: true });
-            logger.log(`writeConfig: Đã tạo thư mục thành công.`);
-        }
-        logger.log(`writeConfig: Đang ghi vào file tại ${configFile}`);
-        fs.writeFileSync(configFile, JSON.stringify(data, null, 2));
-        logger.log(`writeConfig: Ghi file thành công.`);
-    } catch (err) {
-        logger.error('writeConfig: ĐÃ XẢY RA LỖI!', err);
-    }
-}
-
-function setToken(token) {
+async function setToken(token) {
     logger.log(`setToken: Bắt đầu hàm setToken.`);
     if (typeof token !== 'string' || !token.startsWith('priv_')) {
         throw new Error('Token không hợp lệ. Private token phải bắt đầu bằng "priv_".');
     }
-    const config = readConfig();
-    config.token = token;
-    writeConfig(config);
-    logger.log(`setToken: Hoàn tất.`);
+    const kt = await getKeytar();
+    if (!kt) {
+        throw new Error('Không thể lưu token một cách an toàn.');
+    }
+    try {
+        await kt.setPassword(SERVICE_NAME, ACCOUNT_NAME, token);
+        logger.log(`setToken: Đã lưu token vào kho khóa an toàn.`);
+    } catch (error) {
+        logger.error('Lỗi khi lưu token bằng keytar:', error);
+        throw new Error(`Không thể lưu token: ${error.message}`);
+    }
 }
-
-function getToken() {
+async function getToken() {
     logger.log(`getToken: Bắt đầu hàm getToken.`);
-    const config = readConfig();
-    logger.log(`getToken: Token được đọc là: ${config.token || 'không có'}`);
-    return config.token || null;
+    const kt = await getKeytar();
+    if (!kt) return null;
+    try {
+        const token = await kt.getPassword(SERVICE_NAME, ACCOUNT_NAME);
+        logger.log(`getToken: Token được đọc từ kho khóa là: ${token ? 'đã tìm thấy' : 'không có'}`);
+        return token;
+    } catch (error) {
+        logger.error('Lỗi khi lấy token từ keytar:', error);
+        return null;
+    }
 }
-
-function clearToken() {
+async function clearToken() {
     logger.log(`clearToken: Bắt đầu hàm clearToken.`);
-    const config = readConfig();
-    delete config.token;
-    writeConfig(config);
-    logger.log(`clearToken: Hoàn tất.`);
+    const kt = await getKeytar();
+    if (!kt) return;
+    try {
+        await kt.deletePassword(SERVICE_NAME, ACCOUNT_NAME);
+        logger.log(`clearToken: Đã xóa token khỏi kho khóa.`);
+    } catch (error) {
+        logger.error('Lỗi khi xóa token bằng keytar:', error);
+    }
 }
-
-module.exports = { setToken, getToken, clearToken };
-
+module.exports = {
+    setToken,
+    getToken,
+    clearToken
+};
