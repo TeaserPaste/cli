@@ -2,13 +2,19 @@
   "name": "teaserpaste-cli",
   "version": "0.5.0",
   "description": "CLI Client for TeaserPaste - View, create, and manage snippets.",
+  "license": "MIT",
+  "author": {
+    "name": "TeaserPaste",
+    "email": "contact@teaserverse.online",
+    "url": "https://paste.teaserverse.online"
+  },
   "main": "cli.js",
   "bin": {
     "tp": "./cli.js"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/irammini/teaserpaste-cli.git"
+    "url": "https://github.com/TeaserPaste/cli"
   },
   "scripts": {
     "start": "node cli.js",
@@ -16,9 +22,9 @@
   },
   "dependencies": {
     "clipboardy": "^5.0.0",
-    "inquirer": "^12.9.6",
-    "node-fetch": "^2.6.7",
-    "keytar": "^7.9.0"
+    "inquirer": "^12.10.0",
+    "keytar": "^7.9.0",
+    "node-fetch": "^2.7.0"
   },
   "preferGlobal": true
 }
