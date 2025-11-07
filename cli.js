@@ -88,6 +88,35 @@ function getFileExtension(language) { const map = { javascript: '.js', typescrip
 function getLangFromExtension(ext) { return extensionToLang[ext] || 'plaintext'; }
 function sanitizeFilename(name) { if (!name) return 'snippet'; return name.replace(/[\s/\\?%*:|"<>]/g, '_').substring(0, 100); }
 
+// Mở trình soạn thảo ngoài
+async function openExternalEditor(initialContent = '') {
+    return new Promise((resolve, reject) => {
+        const tempFile = path.join(os.tmpdir(), `tp-editor-${Date.now()}.tmp`);
+        fs.writeFileSync(tempFile, initialContent);
+        const editor = process.env.EDITOR || (process.platform === 'win32' ? 'notepad' : 'vim');
+        const child = spawn(editor, [tempFile], {
+            detached: true,
+            stdio: 'ignore'
+        });
+        child.unref();
+        console.log(`\nTrình soạn thảo đã được mở. Vui lòng lưu và đóng nó lại.`);
+        const inquirerPromise = getInquirer().then(inquirer => inquirer.prompt([{ type: 'confirm', name: 'done', message: 'Nhấn Enter khi bạn đã soạn thảo xong:' }]));
+        inquirerPromise.then(answers => {
+            if (answers.done) {
+                 const content = fs.readFileSync(tempFile, 'utf-8');
+                 fs.unlinkSync(tempFile);
+                 resolve(content);
+            } else {
+                 fs.unlinkSync(tempFile);
+                 reject(new Error(`Thao tác soạn thảo đã bị hủy.`));
+            }
+        });
+        child.on('error', (err) => {
+             fs.unlinkSync(tempFile);
+             reject(err);
+        });
+    });
+}
 
 // --- LOGIC CÁC LỆNH ---
 
@@ -157,10 +186,19 @@ async function createSnippet(token, args) {
                 { type: 'input', name: 'password', message: 'Mật khẩu (nếu cần):', when: (ans) => ans.visibility === 'unlisted' },
                 { type: 'input', name: 'tags', message: 'Tags (phân cách bởi dấu phẩy):' },
                 { type: 'input', name: 'expires', message: 'Thời gian hết hạn (ví dụ: 1h, 7d, 2w):' },
+                { type: 'list', name: 'contentSource', message: 'Nguồn nội dung:', choices: ['Mở trình soạn thảo mặc định', 'Nhập từ file', 'In-Terminal Editor [Beta]'], default: 0 },
             ]);
 
-            console.log('\n mở trình soạn thảo tùy chỉnh...');
-            answers.content = await openCustomTUI();
+            if (answers.contentSource === 'Nhập từ file') {
+                const { filePath } = await inquirer.prompt([{ type: 'input', name: 'filePath', message: 'Đường dẫn đến file:' }]);
+                if (!fs.existsSync(filePath)) throw new Error(`File không tồn tại: ${filePath}`);
+                answers.content = fs.readFileSync(filePath, 'utf-8');
+            } else if (answers.contentSource === 'In-Terminal Editor [Beta]') {
+                answers.content = await openCustomTUI();
+            } else {
+                 console.log('\nChuẩn bị mở trình soạn thảo mặc định...');
+                 answers.content = await openExternalEditor();
+            }
             snippetData = answers;
 
         } else if (hasFileFlag) {
