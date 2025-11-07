@@ -7,6 +7,7 @@ const ConfigManager = require('./config-manager');
 const logger = require('./logger');
 const pkg = require('./package.json');
 const { spawn } = require('child_process');
+const { openCustomTUI } = require('./custom-editor');
 
 const BASE_API_URL = 'https://paste-api.teaserverse.online';
 const BASE_WEB_URL = 'https://paste.teaserverse.online';
@@ -33,12 +34,18 @@ async function apiRequest(endpoint, method, body, token = null) {
     const finalToken = token || configToken;
     const headers = { 'Content-Type': 'application/json' };
     if (finalToken) { headers['Authorization'] = `Bearer ${finalToken}`; }
+
+    const startTime = Date.now();
     logger.log(`API Request: ${method} ${BASE_API_URL}${endpoint}`);
     if (body) { logger.log('Request Body:', JSON.stringify(body, null, 2)); }
+
     const response = await fetch(`${BASE_API_URL}${endpoint}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const duration = Date.now() - startTime;
     const responseText = await response.text();
-    logger.log(`API Response Status: ${response.status}`);
+
+    logger.log(`API Response Status: ${response.status} (took: ${duration}ms)`);
     logger.log('Response Body:', responseText);
+
     if (!response.ok) {
         try {
             const data = JSON.parse(responseText);
@@ -81,35 +88,6 @@ function getFileExtension(language) { const map = { javascript: '.js', typescrip
 function getLangFromExtension(ext) { return extensionToLang[ext] || 'plaintext'; }
 function sanitizeFilename(name) { if (!name) return 'snippet'; return name.replace(/[\s/\\?%*:|"<>]/g, '_').substring(0, 100); }
 
-// Mở trình soạn thảo ngoài
-async function openExternalEditor(initialContent = '') {
-    return new Promise((resolve, reject) => {
-        const tempFile = path.join(os.tmpdir(), `tp-editor-${Date.now()}.tmp`);
-        fs.writeFileSync(tempFile, initialContent);
-        const editor = process.env.EDITOR || (process.platform === 'win32' ? 'notepad' : 'vim');
-        const child = spawn(editor, [tempFile], { 
-            detached: true,
-            stdio: 'ignore' 
-        });
-        child.unref();
-        console.log(`\nTrình soạn thảo đã được mở. Vui lòng lưu và đóng nó lại.`);
-        const inquirerPromise = getInquirer().then(inquirer => inquirer.prompt([{ type: 'confirm', name: 'done', message: 'Nhấn Enter khi bạn đã soạn thảo xong:' }]));
-        inquirerPromise.then(answers => {
-            if (answers.done) {
-                 const content = fs.readFileSync(tempFile, 'utf-8');
-                 fs.unlinkSync(tempFile);
-                 resolve(content);
-            } else {
-                 fs.unlinkSync(tempFile);
-                 reject(new Error(`Thao tác soạn thảo đã bị hủy.`));
-            }
-        });
-        child.on('error', (err) => {
-             fs.unlinkSync(tempFile);
-             reject(err);
-        });
-    });
-}
 
 // --- LOGIC CÁC LỆNH ---
 
@@ -170,6 +148,7 @@ async function createSnippet(token, args) {
         const hasContentFlag = parsedArgs.content;
         const hasFileFlag = parsedArgs.file;
         const inquirer = await getInquirer();
+
         if (isInteractive) {
             let answers = await inquirer.prompt([
                 { type: 'input', name: 'title', message: 'Tiêu đề snippet:', default: 'Untitled' },
@@ -178,53 +157,44 @@ async function createSnippet(token, args) {
                 { type: 'input', name: 'password', message: 'Mật khẩu (nếu cần):', when: (ans) => ans.visibility === 'unlisted' },
                 { type: 'input', name: 'tags', message: 'Tags (phân cách bởi dấu phẩy):' },
                 { type: 'input', name: 'expires', message: 'Thời gian hết hạn (ví dụ: 1h, 7d, 2w):' },
-                { type: 'list', name: 'contentSource', message: 'Nguồn nội dung:', choices: ['Soạn thảo (mở Notepad, Vim,...)', 'Nhập từ file', 'Soạn thảo (In-Terminal) [Beta]'], default: 0 },
             ]);
-            if (answers.contentSource === 'Nhập từ file') {
-                const { filePath } = await inquirer.prompt([{ type: 'input', name: 'filePath', message: 'Đường dẫn đến file:' }]);
-                if (!fs.existsSync(filePath)) throw new Error(`File không tồn tại: ${filePath}`);
-                answers.content = fs.readFileSync(filePath, 'utf-8');
-                const fileExt = path.extname(filePath);
-            } else if (answers.contentSource === 'Soạn thảo (In-Terminal) [Beta]') {
-                const { editorContent } = await inquirer.prompt([{
-                    type: 'editor',
-                    name: 'editorContent',
-                    message: 'Nhập nội dung snippet của bạn. Lưu và đóng để tiếp tục.',
-                    waitForUserInput: true,
-                }]);
-                answers.content = editorContent;
-                const langFromFile = getLangFromExtension(fileExt);
-                if (langFromFile !== 'plaintext' && answers.language !== langFromFile) {
-                    const { confirmChange } = await inquirer.prompt([{
-                        type: 'confirm', name: 'confirmChange',
-                        message: `Ngôn ngữ bạn chọn là '${answers.language}' nhưng file có vẻ là '${langFromFile}'. Bạn có muốn đổi thành '${langFromFile}' không?`,
-                        default: true
-                    }]);
-                    if (confirmChange) answers.language = langFromFile;
-                }
-            } else {
-                 console.log('\nChuẩn bị mở trình soạn thảo mặc định...');
-                 answers.content = await openExternalEditor();
-            }
+
+            console.log('\n mở trình soạn thảo tùy chỉnh...');
+            answers.content = await openCustomTUI();
             snippetData = answers;
+
         } else if (hasFileFlag) {
             if (!fs.existsSync(hasFileFlag)) throw new Error(`File không tồn tại: ${hasFileFlag}`);
-            snippetData.content = fs.readFileSync(hasFileFlag, 'utf-8');
-            snippetData = { ...parsedArgs, ...snippetData };
+            const fileContent = fs.readFileSync(hasFileFlag, 'utf-8');
+            const fileExt = path.extname(hasFileFlag);
+            const langFromFile = getLangFromExtension(fileExt);
+
+            snippetData = { ...parsedArgs, content: fileContent };
+
+            if (!parsedArgs.language && langFromFile !== 'plaintext') {
+                snippetData.language = langFromFile;
+                console.log(`ℹ️ Tự động phát hiện ngôn ngữ: ${langFromFile}`);
+            }
+
         } else if (!process.stdin.isTTY && !hasContentFlag) {
             snippetData.content = await readFromStdin();
             snippetData = { ...parsedArgs, ...snippetData };
+
         } else {
             if (!parsedArgs.title || !parsedArgs.content) return console.error(`\n❌ Lỗi: Thiếu --title và --content. Dùng -i (tương tác) hoặc --file <path>.\n`);
             snippetData = parsedArgs;
         }
+
         snippetData.tags = (snippetData.tags || '').split(',').map(t => t.trim()).filter(Boolean);
         const newSnippet = await apiRequest('/createSnippet', 'POST', snippetData, token);
         console.log(`\n✅ Đã tạo snippet thành công! ID: ${newSnippet.id}\n`);
+
     } catch (error) {
-        if (error.message.includes('prompt was canceled') || error.message.includes('Thao tác soạn thảo đã bị hủy') || error.message.includes('Thoát trình soạn thảo')) {
+        if (error.message.includes('prompt was canceled') || error.message.includes('Thao tác soạn thảo đã bị hủy')) {
             console.log('\nĐã hủy bỏ thao tác.\n');
-        } else { console.error(`\n❌ Lỗi: ${error.message}\n`); }
+        } else {
+            console.error(`\n❌ Lỗi: ${error.message}\n`);
+        }
     }
 }
 
@@ -401,81 +371,151 @@ async function runSnippet(id, customStartup, token, args) {
         console.log('\nĐã hủy bỏ thao tác.\n');
         return;
     }
-    let tempFile = '';
+
+    const tempFiles = [];
+    const cleanup = () => {
+        tempFiles.forEach(file => {
+            if (fs.existsSync(file)) {
+                fs.unlinkSync(file);
+                logger.log(`Đã xóa file tạm: ${file}`);
+            }
+        });
+    };
+
     try {
         const parsedArgs = parseArgs(args);
         const snippet = await apiRequest('/getSnippet', 'POST', { snippetId: id, password: parsedArgs.password }, token);
         const extension = getFileExtension(snippet.language);
-        tempFile = path.join(os.tmpdir(), `tp-run-${Date.now()}${extension}`);
+        const tempFile = path.join(os.tmpdir(), `tp-run-${Date.now()}${extension}`);
+        tempFiles.push(tempFile);
         fs.writeFileSync(tempFile, snippet.content);
+
         let command;
         let commandArgs;
+
         if (customStartup) {
             const startupParts = customStartup.split(' ');
             const snippetIndex = startupParts.indexOf('--snippet');
-            if (snippetIndex > -1) {
-                startupParts[snippetIndex] = tempFile;
-            } else {
-                startupParts.push(tempFile);
-            }
+            if (snippetIndex > -1) startupParts[snippetIndex] = tempFile;
+            else startupParts.push(tempFile);
             command = startupParts[0];
             commandArgs = startupParts.slice(1);
         } else {
             const lang = snippet.language ? snippet.language.toLowerCase() : 'plaintext';
             const langToCommand = {
-                python: 'python',
-                javascript: 'node',
-                shell: 'bash',
-                typescript: 'ts-node',
-                ruby: 'ruby',
-                perl: 'perl',
-                php: 'php',
-                go: 'go run',
-                rust: 'rustc', 
+                python: 'python', javascript: 'node', shell: 'bash',
+                typescript: 'ts-node', ruby: 'ruby', perl: 'perl',
+                php: 'php', go: 'go run', rust: 'rustc',
+                c: 'gcc', cpp: 'g++', java: 'javac',
             };
             if (!langToCommand[lang]) {
-                throw new Error(`Ngôn ngữ '${snippet.language}' không được hỗ trợ để chạy tự động. Vui lòng cung cấp lệnh tùy chỉnh.`);
+                throw new Error(`Ngôn ngữ '${snippet.language}' không được hỗ trợ để chạy tự động.`);
             }
-            if (lang === 'rust') {
-                command = 'rustc';
-                commandArgs = [tempFile, '-o', tempFile.replace('.rs', '')];
+            if (['c', 'cpp', 'rust'].includes(lang)) {
+                const exePath = tempFile.replace(extension, '');
+                tempFiles.push(exePath);
+                command = langToCommand[lang];
+                commandArgs = [tempFile, '-o', exePath];
+            } else if (lang === 'java') {
+                command = 'javac';
+                commandArgs = [tempFile];
             } else {
                 const parts = langToCommand[lang].split(' ');
                 command = parts[0];
                 commandArgs = [...parts.slice(1), tempFile];
             }
         }
+
         console.log(`\n> Đang chạy: ${command} ${commandArgs.join(' ')}\n`);
         const child = spawn(command, commandArgs, { stdio: 'inherit' });
+
         child.on('close', (code) => {
-            console.log(`\n> Quá trình kết thúc với mã thoát: ${code}\n`);
-            if (snippet.language === 'rust' && code === 0) {
-                const exePath = tempFile.replace('.rs', '');
-                console.log(`> Biên dịch thành công. Đang chạy file thực thi: ./${path.basename(exePath)}\n`);
+            if (code !== 0) {
+                console.log(`\n> Quá trình kết thúc với mã thoát: ${code}\n`);
+                cleanup();
+                return;
+            }
+
+            const lang = snippet.language ? snippet.language.toLowerCase() : 'plaintext';
+            if (['c', 'cpp', 'rust'].includes(lang)) {
+                const exePath = tempFile.replace(extension, '');
+                console.log(`> Biên dịch thành công. Đang chạy file thực thi...\n`);
                 const runChild = spawn(exePath, [], { stdio: 'inherit' });
                 runChild.on('close', (runCode) => {
                     console.log(`\n> Quá trình thực thi kết thúc với mã thoát: ${runCode}\n`);
-                    fs.unlinkSync(exePath); 
+                    cleanup();
                 });
-            }
-            if (fs.existsSync(tempFile)) {
-                fs.unlinkSync(tempFile);
-                logger.log(`Đã xóa file tạm: ${tempFile}`);
+            } else if (lang === 'java') {
+                const classFile = tempFile.replace('.java', '.class');
+                const baseName = path.basename(tempFile, '.java');
+                tempFiles.push(classFile);
+                console.log('> Biên dịch thành công. Đang chạy class...\n');
+                const runChild = spawn('java', ['-cp', path.dirname(tempFile), baseName], { stdio: 'inherit' });
+                runChild.on('close', (runCode) => {
+                    console.log(`\n> Quá trình thực thi kết thúc với mã thoát: ${runCode}\n`);
+                    cleanup();
+                });
+            } else {
+                console.log(`\n> Quá trình kết thúc với mã thoát: ${code}\n`);
+                cleanup();
             }
         });
+
         child.on('error', (err) => {
             console.error(`\n❌ Lỗi khi thực thi: ${err.message}\n`);
-            if (fs.existsSync(tempFile)) {
-                fs.unlinkSync(tempFile);
-                logger.log(`Đã xóa file tạm: ${tempFile}`);
-            }
+            cleanup();
         });
+
     } catch (error) {
         console.error(`\n❌ Lỗi: ${error.message}\n`);
-        if (tempFile && fs.existsSync(tempFile)) {
-            fs.unlinkSync(tempFile);
-            logger.log(`Đã xóa file tạm sau lỗi: ${tempFile}`);
+        cleanup();
+    }
+}
+
+async function showStats(token) {
+    try {
+        console.log('\nĐang tải dữ liệu thống kê...');
+        const userInfo = await apiRequest('/getUserInfo', 'GET', null, token);
+        const allSnippets = await apiRequest('/listSnippets', 'POST', { limit: 500 }, token);
+
+        if (!allSnippets || allSnippets.length === 0) {
+            console.log('Bạn chưa có snippet nào để thống kê.');
+            return;
         }
+
+        const totalSnippets = allSnippets.length;
+
+        const visibilityCounts = allSnippets.reduce((acc, snippet) => {
+            acc[snippet.visibility] = (acc[snippet.visibility] || 0) + 1;
+            return acc;
+        }, {});
+
+        const languageCounts = allSnippets.reduce((acc, snippet) => {
+            const lang = snippet.language || 'N/A';
+            acc[lang] = (acc[lang] || 0) + 1;
+            return acc;
+        }, {});
+
+        const top5Languages = Object.entries(languageCounts)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 5)
+            .map(([language, count]) => ({ language, count }));
+
+        console.log(`\n--- THỐNG KÊ CHO USER: ${userInfo.displayName} ---`);
+
+        console.log('\n📊 Tổng quan');
+        console.table([{
+            'Tổng số Snippet': totalSnippets,
+            'Public': visibilityCounts.public || 0,
+            'Unlisted': visibilityCounts.unlisted || 0,
+            'Private': visibilityCounts.private || 0,
+        }]);
+
+        console.log('\n🌐 5 Ngôn ngữ hàng đầu');
+        console.table(top5Languages);
+
+    } catch (error) {
+        console.error(`\n❌ Lỗi khi tải thống kê: ${error.message}\n`);
     }
 }
 
@@ -535,7 +575,7 @@ function parseArgs(argv) {
 
 function showHelp() {
     console.log(`
---- CLI TeaserPaste (v0.5.1) ---
+--- CLI TeaserPaste (v0.6.0) ---
 
 Sử dụng: 
   tp <lệnh> [tham số] [tùy chọn]
@@ -545,6 +585,7 @@ Các lệnh:
   clone <id> [filename]     Tải nội dung snippet về thành một file.
   copy <id>                 Sao chép (fork) một snippet vào tài khoản của bạn.
   run <id> [lệnh]           Thực thi snippet (ví dụ: "node --snippet").
+  stats                     Xem thống kê về các snippet của bạn.
   list                      Liệt kê các snippet của bạn.
   create                    Tạo một snippet mới.
   update <id>               Cập nhật một snippet đã có.
@@ -613,6 +654,7 @@ async function main() {
             case 'search': await searchSnippets(subArgs[0], token, rawArgs); break;
             case 'copy': await copySnippet(subArgs[0], token, rawArgs); break;
             case 'run': await runSnippet(subArgs[0], subArgs.slice(1).join(' '), token, rawArgs); break;
+            case 'stats': await showStats(token); break;
             default:
                 console.error(`\n❌ Lỗi: Lệnh '${command}' không tồn tại.\n`);
                 showHelp();
