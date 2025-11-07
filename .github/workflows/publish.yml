@@ -34,8 +34,19 @@ jobs:
       # Dùng 'npm ci' vì có package-lock.json
       - name: Clean Install Dependencies (npm ci)
         run: npm ci
+        
+      # 3. Bước gỡ lỗi: Kiểm tra trạng thái xác thực (An toàn)
+      - name: Debug Authentication Status
+        run: |
+          # Kiểm tra xem file ~/.npmrc có được tạo không (không in nội dung)
+          echo "Kiểm tra sự tồn tại của ~/.npmrc..."
+          ls -l ~/.npmrc || echo "Lưu ý: Không tìm thấy ~/.npmrc"
+          
+          echo "--- Running npm whoami (Kiểm tra token) ---"
+          # Kiểm tra xem token OIDC đã được thiết lập và có hoạt động không
+          npm whoami || echo "Lưu ý: npm whoami thất bại (ĐIỀU NÀY LÀ BÌNH THƯỜNG TRƯỚC BƯỚC PUBLISH. Vấn đề là ở bước 4)."
 
       # 4. Publish gói lên NPM
-      # Lệnh publish sẽ dùng JWT từ OIDC để xác thực
-      - name: Publish to NPM
-        run: npm publish 
+      - name: Publish to NPM (With Verbose Debugging for 404)
+        # Thêm cờ '--access public' (cho gói unscoped) và '--verbose' để có chi tiết gỡ lỗi 404
+        run: npm publish --access public --verbose
