@@ -1,0 +1,222 @@
+# Tên của workflow
+name: Build & Release (Theo Tag)
+
+# Kích hoạt workflow khi:
+on:
+  # Kích hoạt khi push một tag mới có dạng 'v*' (ví dụ: v0.7.0)
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-release:
+    # Đã xóa phần Tag để tránh lỗi cú pháp YAML
+    name: Build cho ${{ matrix.os }}
+    
+    # Chạy job này trên các hệ điều hành khác nhau
+    runs-on: ${{ matrix.os }}
+    
+    # Yêu cầu: Sử dụng environment "builder"
+    environment: builder
+    
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      # 1. Checkout code
+      - name: Lấy mã nguồn (Checkout)
+        uses: actions/checkout@v4
+
+      # 2. Lấy version từ Git tag
+      - name: Lấy Version từ Tag
+        id: get_version
+        shell: bash
+        run: |
+          echo "VERSION=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          echo "VERSION_NUMBER=${{ github.ref_name#v }}" >> $GITHUB_OUTPUT
+
+      # 3. Cài đặt môi trường Bun
+      - name: Cài đặt Bun
+        uses: oven-sh/setup-bun@v1
+
+      # 4. Cài đặt dependencies
+      - name: Cài đặt dependencies
+        run: bun install --frozen-lockfile
+
+      # 5. Build file binary dựa trên OS
+      - name: Build Binary
+        id: build
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            echo "Đang build cho Windows..."
+            bun run build-win
+            echo "binary-path=dist/tp.exe" >> $GITHUB_OUTPUT
+            echo "artifact-name=tp-windows.exe" >> $GITHUB_OUTPUT
+            echo "iss-output-name=TeaserPaste_CLI_Setup-${{ steps.get_version.outputs.VERSION_NUMBER }}.exe" >> $GITHUB_OUTPUT
+          
+          elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            echo "Đang build cho Linux..."
+            bun run build-linux
+            echo "binary-path=dist/tp-linux" >> $GITHUB_OUTPUT
+            echo "artifact-name=tp-linux" >> $GITHUB_OUTPUT
+          
+          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+            echo "Đang build cho macOS..."
+            bun run build-mac
+            echo "binary-path=dist/tp-macos" >> $GITHUB_OUTPUT
+            echo "artifact-name=tp-macos" >> $GITHUB_OUTPUT
+          fi
+
+      # 6. Upload file binary thô (artifact)
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifact-name }}
+          path: ${{ steps.build.outputs.binary-path }}
+          if-no-files-found: error
+
+      # 7. [CHỈ WINDOWS] Biên dịch file cài đặt Inno Setup
+      - name: Biên dịch Inno Setup Installer
+        if: matrix.os == 'windows-latest'
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.7
+        with:
+          path: TeaserPasteCLI.iss
+          
+      # 8. [CHỈ LINUX] Tạo gói .deb
+      - name: Tạo gói .deb (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        id: package_deb
+        shell: bash
+        run: |
+          DEB_NAME="tp-cli_${{ steps.get_version.outputs.VERSION_NUMBER }}_amd64.deb"
+          echo "deb-name=${DEB_NAME}" >> $GITHUB_OUTPUT
+          mkdir -p package/DEBIAN
+          mkdir -p package/usr/bin
+          cp ${{ steps.build.outputs.binary-path }} package/usr/bin/tp
+          cat <<EOF > package/DEBIAN/control
+          Package: tp-cli
+          Version: ${{ steps.get_version.outputs.VERSION_NUMBER }}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: TeaserPaste <contact@teaserverse.online>
+          Description: TeaserPaste CLI (tp)
+           Một công cụ dòng lệnh nhanh để tương tác với TeaserPaste.
+          EOF
+          chmod +x package/usr/bin/tp
+          dpkg-deb --build package
+          mv package.deb ${DEB_NAME}
+
+      # 9. [CHỈ LINUX] Kiểm tra (sanity check) file .deb
+      - name: Kiểm tra (sanity check) file .deb
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          echo "Đang kiểm tra metadata của file .deb..."
+          dpkg-deb -I ${{ steps.package_deb.outputs.deb-name }} | grep "Package: tp-cli"
+          dpkg-deb -I ${{ steps.package_deb.outputs.deb-name }} | grep "Version: ${{ steps.get_version.outputs.VERSION_NUMBER }}"
+          echo "Đang kiểm tra nội dung file .deb..."
+          dpkg-deb -c ${{ steps.package_deb.outputs.deb-name }} | grep "usr/bin/tp"
+          echo "Kiểm tra .deb hoàn tất."
+          
+      # 10. [CHỈ MACOS] Tạo gói .dmg
+      - name: Tạo gói .dmg (macOS)
+        if: matrix.os == 'macos-latest'
+        id: package_dmg
+        shell: bash
+        run: |
+          DMG_NAME="tp-cli-${{ steps.get_version.outputs.VERSION_NUMBER }}.dmg"
+          VOL_NAME="tp-cli ${{ steps.get_version.outputs.VERSION_NUMBER }}"
+          echo "dmg-name=${DMG_NAME}" >> $GITHUB_OUTPUT
+          mkdir -p staging
+          cp ${{ steps.build.outputs.binary-path }} staging/tp
+          chmod +x staging/tp
+          hdiutil create -volname "${VOL_NAME}" -srcfolder staging -ov -format UDZO "${DMG_NAME}"
+
+      # 11. [CHỈ MACOS] Kiểm tra (sanity check) file .dmg
+      - name: Kiểm tra (sanity check) file .dmg
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          echo "Đang kiểm tra file .dmg..."
+          MOUNT_POINT=$(hdiutil attach -nobrowse -mountpoint /tmp/tp-dmg-mount ${{ steps.package_dmg.outputs.dmg-name }} | tail -n 1 | awk '{print $3}')
+          if [ -z "$MOUNT_POINT" ]; then
+            echo "Lỗi: Không thể mount file .dmg!"
+            exit 1
+          fi
+          echo "DMG được mount tại: $MOUNT_POINT"
+          if [ -f "$MOUNT_POINT/tp" ]; then
+            echo "Đã tìm thấy file binary 'tp' bên trong .dmg."
+          else
+            echo "Lỗi: Không tìm thấy file 'tp' bên trong .dmg!"
+            hdiutil detach "$MOUNT_POINT" -quiet
+            exit 1
+          fi
+          hdiutil detach "$MOUNT_POINT" -quiet
+          echo "Kiểm tra .dmg hoàn tất."
+          
+      # 12. [CHỈ WINDOWS] Upload file cài đặt .exe làm artifact
+      - name: Upload Installer Artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: TeaserPaste_CLI_Setup-${{ steps.get_version.outputs.VERSION }}.exe
+          path: Output/${{ steps.build.outputs.iss-output-name }}
+          if-no-files-found: error
+          
+      # 13. [CHỈ LINUX] Upload file .deb làm artifact
+      - name: Upload Linux .deb Artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tp-linux-deb-${{ steps.get_version.outputs.VERSION }}
+          path: ${{ steps.package_deb.outputs.deb-name }}
+          if-no-files-found: error
+
+      # 14. [CHỈ MACOS] Upload file .dmg làm artifact
+      - name: Upload macOS .dmg Artifact
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tp-macos-dmg-${{ steps.get_version.outputs.VERSION }}
+          path: ${{ steps.package_dmg.outputs.dmg-name }}
+          if-no-files-found: error
+          
+      # 15. [CHỈ WINDOWS] Upload file cài đặt lên Cloudflare R2
+      - name: Upload lên Cloudflare R2
+        if: matrix.os == 'windows-latest'
+        uses: ryand56/r2-upload-action@v1.4
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket-name: ${{ secrets.R2_BUCKET_NAME }}
+          source-file: Output/${{ steps.build.outputs.iss-output-name }}
+          destination-file: teaserpaste-cli-latest-setup.exe
+          
+      # 16. [CHỈ LINUX] Upload file .deb lên Cloudflare R2
+      - name: Upload Linux Installer (.deb) lên R2
+        if: matrix.os == 'ubuntu-latest'
+        uses: ryand56/r2-upload-action@v1.4
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket-name: ${{ secrets.R2_BUCKET_NAME }}
+          source-file: ${{ steps.package_deb.outputs.deb-name }}
+          destination-file: teaserpaste-cli-latest.deb
+
+      # 17. [CHỈ MACOS] Upload file .dmg lên Cloudflare R2
+      - name: Upload macOS Installer (.dmg) lên R2
+        if: matrix.os == 'macos-latest'
+        uses: ryand56/r2-upload-action@v1.4
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket-name: ${{ secrets.R2_BUCKET_NAME }}
+          source-file: ${{ steps.package_dmg.outputs.dmg-name }}
+          destination-file: teaserpaste-cli-latest.dmg
