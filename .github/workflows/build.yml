@@ -3,21 +3,24 @@ name: Build & Release (Theo Tag)
 
 # Kích hoạt workflow khi:
 on:
-  # Kích hoạt khi push một tag mới có dạng 'v*' (ví dụ: v0.7.0)
+  # Kịch bản 1: Kích hoạt khi push một tag mới có dạng 'v*' (ví dụ: v0.7.0)
   push:
     tags:
       - 'v*'
+      
+  # Kịch bản 2: Kích hoạt thủ công (bằng nút "Run workflow")
   workflow_dispatch:
+    # Thêm 'inputs' để cho phép người dùng nhập tag giả lập khi test
+    inputs:
+      simulated_tag:
+        description: 'Nhập tag giả lập (ví dụ: v0.0.1-test) để test build'
+        required: true
+        default: 'v0.0.1-test'
 
 jobs:
   build-release:
-    # Tên job đã được làm sạch
     name: Build cho ${{ matrix.os }}
-    
-    # Chạy job này trên các hệ điều hành khác nhau
     runs-on: ${{ matrix.os }}
-    
-    # Yêu cầu: Sử dụng environment "builder"
     environment: builder
     
     strategy:
@@ -29,16 +32,24 @@ jobs:
       - name: Lấy mã nguồn (Checkout)
         uses: actions/checkout@v4
 
-      # 2. Lấy version từ Git tag (ĐÃ SỬA LỖI CÚ PHÁP)
-      - name: Lấy Version từ Tag
+      # 2. Lấy version (ĐÃ CẬP NHẬT)
+      - name: Lấy Version
         id: get_version
         shell: bash
         run: |
-          # Lấy tag gốc (ví dụ: v0.7.0)
-          VERSION="${{ github.ref_name }}"
+          # Kiểm tra xem workflow được kích hoạt bằng 'push' (tag thật)
+          # hay 'workflow_dispatch' (chạy tay)
+          if [ "${{ github.event_name }}" == "push" ]; then
+            VERSION="${{ github.ref_name }}"
+            echo "Chạy với tag thật: $VERSION"
+          else
+            VERSION="${{ github.event.inputs.simulated_tag }}"
+            echo "Chạy thủ công với tag giả lập: $VERSION"
+          fi
+          
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-
-          # Lấy số version bằng cách cắt chữ 'v' (Sử dụng Bash thuần)
+          
+          # Logic cắt chữ 'v' vẫn y nguyên và an toàn
           VERSION_NUMBER="${VERSION#v}"
           echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_OUTPUT
 
