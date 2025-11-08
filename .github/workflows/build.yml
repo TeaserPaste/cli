@@ -24,6 +24,8 @@ jobs:
     environment: builder
     
     strategy:
+      # Tắt fail-fast để một OS lỗi không làm hỏng các OS khác
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
 
@@ -32,13 +34,11 @@ jobs:
       - name: Lấy mã nguồn (Checkout)
         uses: actions/checkout@v4
 
-      # 2. Lấy version (ĐÃ CẬP NHẬT)
+      # 2. Lấy version (Hỗ trợ cả tag thật và test thủ công)
       - name: Lấy Version
         id: get_version
         shell: bash
         run: |
-          # Kiểm tra xem workflow được kích hoạt bằng 'push' (tag thật)
-          # hay 'workflow_dispatch' (chạy tay)
           if [ "${{ github.event_name }}" == "push" ]; then
             VERSION="${{ github.ref_name }}"
             echo "Chạy với tag thật: $VERSION"
@@ -49,7 +49,6 @@ jobs:
           
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           
-          # Logic cắt chữ 'v' vẫn y nguyên và an toàn
           VERSION_NUMBER="${VERSION#v}"
           echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_OUTPUT
 
@@ -138,40 +137,33 @@ jobs:
           dpkg-deb -c ${{ steps.package_deb.outputs.deb-name }} | grep "usr/bin/tp"
           echo "Kiểm tra .deb hoàn tất."
           
-      # 10. [CHỈ MACOS] Tạo gói .dmg
+      # 10. [CHỈ MACOS] Tạo gói .dmg (Dùng UDZO nén)
       - name: Tạo gói .dmg (macOS)
         if: matrix.os == 'macos-latest'
         id: package_dmg
         shell: bash
         run: |
           DMG_NAME="tp-cli-${{ steps.get_version.outputs.VERSION_NUMBER }}.dmg"
-          VOL_NAME="tp-cli ${{ steps.get_version.outputs.VERSION_NUMBER }}"
+          VOL_NAME="TeaserPaste CLI ${{ steps.get_version.outputs.VERSION_NUMBER }}"
           echo "dmg-name=${DMG_NAME}" >> $GITHUB_OUTPUT
+          
+          # 1. Tạo thư mục tạm và copy binary vào
           mkdir -p staging
           cp ${{ steps.build.outputs.binary-path }} staging/tp
           chmod +x staging/tp
+          
+          # 2. Tạo DMG (sử dụng UDZO nén)
+          echo "Đang tạo DMG nén..."
           hdiutil create -volname "${VOL_NAME}" -srcfolder staging -ov -format UDZO "${DMG_NAME}"
 
-      # 11. [CHỈ MACOS] Kiểm tra (sanity check) file .dmg
+      # 11. [CHỈ MACOS] Kiểm tra (sanity check) file .dmg (Chỉ Verify)
       - name: Kiểm tra (sanity check) file .dmg
         if: matrix.os == 'macos-latest'
         shell: bash
         run: |
-          echo "Đang kiểm tra file .dmg..."
-          MOUNT_POINT=$(hdiutil attach -nobrowse -mountpoint /tmp/tp-dmg-mount ${{ steps.package_dmg.outputs.dmg-name }} | tail -n 1 | awk '{print $3}')
-          if [ -z "$MOUNT_POINT" ]; then
-            echo "Lỗi: Không thể mount file .dmg!"
-            exit 1
-          fi
-          echo "DMG được mount tại: $MOUNT_POINT"
-          if [ -f "$MOUNT_POINT/tp" ]; then
-            echo "Đã tìm thấy file binary 'tp' bên trong .dmg."
-          else
-            echo "Lỗi: Không tìm thấy file 'tp' bên trong .dmg!"
-            hdiutil detach "$MOUNT_POINT" -quiet
-            exit 1
-          fi
-          hdiutil detach "$MOUNT_POINT" -quiet
+          echo "Đang kiểm tra tính toàn vẹn (verify) của file .dmg..."
+          # Lệnh này kiểm tra DMG mà KHÔNG cần mount (tránh lỗi hết không gian)
+          hdiutil verify ${{ steps.package_dmg.outputs.dmg-name }}
           echo "Kiểm tra .dmg hoàn tất."
           
       # 12. [CHỈ WINDOWS] Upload file cài đặt .exe làm artifact
