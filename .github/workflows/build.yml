@@ -209,7 +209,7 @@ jobs:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket-name: ${{ secrets.R2_BUCKET_NAME }}
+          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
           source-file: Output/${{ steps.build.outputs.iss-output-name }}
           destination-file: teaserpaste-cli-latest-setup.exe
           
@@ -221,7 +221,7 @@ jobs:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket-name: ${{ secrets.R2_BUCKET_NAME }}
+          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
           source-file: ${{ steps.package_deb.outputs.deb-name }}
           destination-file: teaserpaste-cli-latest.deb
 
@@ -233,6 +233,6 @@ jobs:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket-name: ${{ secrets.R2_BUCKET_NAME }}
+          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
           source-file: ${{ steps.package_dmg.outputs.dmg-name }}
           destination-file: teaserpaste-cli-latest.dmg
