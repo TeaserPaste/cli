@@ -71,18 +71,22 @@ jobs:
             echo "binary-path=dist/tp.exe" >> $GITHUB_OUTPUT
             echo "artifact-name=tp-windows.exe" >> $GITHUB_OUTPUT
             echo "iss-output-name=TeaserPaste_CLI_Setup-${{ steps.get_version.outputs.VERSION_NUMBER }}.exe" >> $GITHUB_OUTPUT
+            # Tên file cuối cùng theo phiên bản (dùng để upload)
+            echo "upload-file-name=TeaserPaste_CLI_Setup-${{ steps.get_version.outputs.VERSION_NUMBER }}.exe" >> $GITHUB_OUTPUT
           
           elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             echo "Đang build cho Linux..."
             bun run build-linux
             echo "binary-path=dist/tp-linux" >> $GITHUB_OUTPUT
             echo "artifact-name=tp-linux" >> $GITHUB_OUTPUT
+            echo "upload-file-name=tp-cli_${{ steps.get_version.outputs.VERSION_NUMBER }}_amd64.deb" >> $GITHUB_OUTPUT
           
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
             echo "Đang build cho macOS..."
             bun run build-mac
             echo "binary-path=dist/tp-macos" >> $GITHUB_OUTPUT
             echo "artifact-name=tp-macos" >> $GITHUB_OUTPUT
+            echo "upload-file-name=tp-cli-${{ steps.get_version.outputs.VERSION_NUMBER }}.dmg" >> $GITHUB_OUTPUT
           fi
 
       # 6. Upload file binary thô (artifact)
@@ -106,7 +110,7 @@ jobs:
         id: package_deb
         shell: bash
         run: |
-          DEB_NAME="tp-cli_${{ steps.get_version.outputs.VERSION_NUMBER }}_amd64.deb"
+          DEB_NAME="${{ steps.build.outputs.upload-file-name }}"
           echo "deb-name=${DEB_NAME}" >> $GITHUB_OUTPUT
           mkdir -p package/DEBIAN
           mkdir -p package/usr/bin
@@ -143,16 +147,14 @@ jobs:
         id: package_dmg
         shell: bash
         run: |
-          DMG_NAME="tp-cli-${{ steps.get_version.outputs.VERSION_NUMBER }}.dmg"
+          DMG_NAME="${{ steps.build.outputs.upload-file-name }}"
           VOL_NAME="TeaserPaste CLI ${{ steps.get_version.outputs.VERSION_NUMBER }}"
           echo "dmg-name=${DMG_NAME}" >> $GITHUB_OUTPUT
           
-          # 1. Tạo thư mục tạm và copy binary vào
           mkdir -p staging
           cp ${{ steps.build.outputs.binary-path }} staging/tp
           chmod +x staging/tp
           
-          # 2. Tạo DMG (sử dụng UDZO nén)
           echo "Đang tạo DMG nén..."
           hdiutil create -volname "${VOL_NAME}" -srcfolder staging -ov -format UDZO "${DMG_NAME}"
 
@@ -162,7 +164,6 @@ jobs:
         shell: bash
         run: |
           echo "Đang kiểm tra tính toàn vẹn (verify) của file .dmg..."
-          # Lệnh này kiểm tra DMG mà KHÔNG cần mount (tránh lỗi hết không gian)
           hdiutil verify ${{ steps.package_dmg.outputs.dmg-name }}
           echo "Kiểm tra .dmg hoàn tất."
           
@@ -193,38 +194,65 @@ jobs:
           path: ${{ steps.package_dmg.outputs.dmg-name }}
           if-no-files-found: error
           
-      # 15. [CHỈ WINDOWS] Upload file cài đặt lên Cloudflare R2
-      - name: Upload lên Cloudflare R2
-        if: matrix.os == 'windows-latest'
+      # --- UPLOAD CÁC FILE CÓ ĐÁNH SỐ PHIÊN BẢN (Ví dụ: tp-cli_0.0.1-test_amd64.deb) ---
+      # Bước này dùng source-file và destination-file, nhưng đây là R2-action khác
+      # do action ryand56 không hỗ trợ source-file/destination-file như ý muốn
+      # Chúng ta sẽ sử dụng action 'source-dir' và 'destination-dir' để upload file theo tên phiên bản
+      
+      # 15. Upload file có phiên bản (Ví dụ: TeaserPaste_CLI_Setup-0.0.1-test.exe)
+      - name: Upload Versioned Files to R2
         uses: ryand56/r2-upload-action@v1.4
+        id: upload_versioned
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
-          source-file: Output/${{ steps.build.outputs.iss-output-name }}
-          destination-file: teaserpaste-cli-latest-setup.exe
+          source-dir: ${{ matrix.os == 'windows-latest' && 'Output' || '.' }}
+          destination-dir: /releases/${{ steps.get_version.outputs.VERSION_NUMBER }}
+          include: ${{ steps.build.outputs.upload-file-name }}
           
-      # 16. [CHỈ LINUX] Upload file .deb lên Cloudflare R2
-      - name: Upload Linux Installer (.deb) lên R2
-        if: matrix.os == 'ubuntu-latest'
-        uses: ryand56/r2-upload-action@v1.4
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
-          source-file: ${{ steps.package_deb.outputs.deb-name }}
-          destination-file: teaserpaste-cli-latest.deb
+      # --- TẠO ALIAS 'LATEST' (Đổi tên file đã upload) ---
+      # Thao tác này dùng cURL và AWS CLI (có sẵn trên runner) để đổi tên file đã upload
+      
+      # 16. Đặt ALIAS 'LATEST' (Windows)
+      - name: Đặt ALIAS 'LATEST' cho Windows
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          source_key="releases/${{ steps.get_version.outputs.VERSION_NUMBER }}/${{ steps.build.outputs.upload-file-name }}"
+          target_key="teaserpaste-cli-latest-setup.exe"
+          
+          aws s3 cp s3://${{ secrets.R2_BUCKET_NAME }}/${source_key} \
+              s3://${{ secrets.R2_BUCKET_NAME }}/${target_key} \
+              --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+              --copy-source-if-match "*" \
+              --recursive
 
-      # 17. [CHỈ MACOS] Upload file .dmg lên Cloudflare R2
-      - name: Upload macOS Installer (.dmg) lên R2
+      # 17. Đặt ALIAS 'LATEST' (Linux)
+      - name: Đặt ALIAS 'LATEST' cho Linux
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          source_key="releases/${{ steps.get_version.outputs.VERSION_NUMBER }}/${{ steps.build.outputs.upload-file-name }}"
+          target_key="teaserpaste-cli-latest.deb"
+          
+          aws s3 cp s3://${{ secrets.R2_BUCKET_NAME }}/${source_key} \
+              s3://${{ secrets.R2_BUCKET_NAME }}/${target_key} \
+              --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+              --copy-source-if-match "*" \
+              --recursive
+              
+      # 18. Đặt ALIAS 'LATEST' (macOS)
+      - name: Đặt ALIAS 'LATEST' cho macOS
         if: matrix.os == 'macos-latest'
-        uses: ryand56/r2-upload-action@v1.4
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
-          source-file: ${{ steps.package_dmg.outputs.dmg-name }}
-          destination-file: teaserpaste-cli-latest.dmg
+        shell: bash
+        run: |
+          source_key="releases/${{ steps.get_version.outputs.VERSION_NUMBER }}/${{ steps.build.outputs.upload-file-name }}"
+          target_key="teaserpaste-cli-latest.dmg"
+          
+          aws s3 cp s3://${{ secrets.R2_BUCKET_NAME }}/${source_key} \
+              s3://${{ secrets.R2_BUCKET_NAME }}/${target_key} \
+              --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+              --copy-source-if-match "*" \
+              --recursive
