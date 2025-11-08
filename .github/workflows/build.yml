@@ -11,7 +11,7 @@ on:
 
 jobs:
   build-release:
-    # Đã xóa phần Tag để tránh lỗi cú pháp YAML
+    # Tên job đã được làm sạch
     name: Build cho ${{ matrix.os }}
     
     # Chạy job này trên các hệ điều hành khác nhau
@@ -29,13 +29,18 @@ jobs:
       - name: Lấy mã nguồn (Checkout)
         uses: actions/checkout@v4
 
-      # 2. Lấy version từ Git tag
+      # 2. Lấy version từ Git tag (ĐÃ SỬA LỖI CÚ PHÁP)
       - name: Lấy Version từ Tag
         id: get_version
         shell: bash
         run: |
-          echo "VERSION=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          echo "VERSION_NUMBER=${{ github.ref_name#v }}" >> $GITHUB_OUTPUT
+          # Lấy tag gốc (ví dụ: v0.7.0)
+          VERSION="${{ github.ref_name }}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+          # Lấy số version bằng cách cắt chữ 'v' (Sử dụng Bash thuần)
+          VERSION_NUMBER="${VERSION#v}"
+          echo "VERSION_NUMBER=$VERSION_NUMBER" >> $GITHUB_OUTPUT
 
       # 3. Cài đặt môi trường Bun
       - name: Cài đặt Bun
