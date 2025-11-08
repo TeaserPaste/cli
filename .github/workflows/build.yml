@@ -71,22 +71,18 @@ jobs:
             echo "binary-path=dist/tp.exe" >> $GITHUB_OUTPUT
             echo "artifact-name=tp-windows.exe" >> $GITHUB_OUTPUT
             echo "iss-output-name=TeaserPaste_CLI_Setup-${{ steps.get_version.outputs.VERSION_NUMBER }}.exe" >> $GITHUB_OUTPUT
-            # Tên file cuối cùng theo phiên bản (dùng để upload)
-            echo "upload-file-name=TeaserPaste_CLI_Setup-${{ steps.get_version.outputs.VERSION_NUMBER }}.exe" >> $GITHUB_OUTPUT
           
           elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             echo "Đang build cho Linux..."
             bun run build-linux
             echo "binary-path=dist/tp-linux" >> $GITHUB_OUTPUT
             echo "artifact-name=tp-linux" >> $GITHUB_OUTPUT
-            echo "upload-file-name=tp-cli_${{ steps.get_version.outputs.VERSION_NUMBER }}_amd64.deb" >> $GITHUB_OUTPUT
           
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
             echo "Đang build cho macOS..."
             bun run build-mac
             echo "binary-path=dist/tp-macos" >> $GITHUB_OUTPUT
             echo "artifact-name=tp-macos" >> $GITHUB_OUTPUT
-            echo "upload-file-name=tp-cli-${{ steps.get_version.outputs.VERSION_NUMBER }}.dmg" >> $GITHUB_OUTPUT
           fi
 
       # 6. Upload file binary thô (artifact)
@@ -100,6 +96,7 @@ jobs:
       # 7. [CHỈ WINDOWS] Biên dịch file cài đặt Inno Setup
       - name: Biên dịch Inno Setup Installer
         if: matrix.os == 'windows-latest'
+        id: compile_iss
         uses: Minionguyjpro/Inno-Setup-Action@v1.2.7
         with:
           path: TeaserPasteCLI.iss
@@ -110,7 +107,7 @@ jobs:
         id: package_deb
         shell: bash
         run: |
-          DEB_NAME="${{ steps.build.outputs.upload-file-name }}"
+          DEB_NAME="tp-cli_${{ steps.get_version.outputs.VERSION_NUMBER }}_amd64.deb"
           echo "deb-name=${DEB_NAME}" >> $GITHUB_OUTPUT
           mkdir -p package/DEBIAN
           mkdir -p package/usr/bin
@@ -147,7 +144,7 @@ jobs:
         id: package_dmg
         shell: bash
         run: |
-          DMG_NAME="${{ steps.build.outputs.upload-file-name }}"
+          DMG_NAME="tp-cli-${{ steps.get_version.outputs.VERSION_NUMBER }}.dmg"
           VOL_NAME="TeaserPaste CLI ${{ steps.get_version.outputs.VERSION_NUMBER }}"
           echo "dmg-name=${DMG_NAME}" >> $GITHUB_OUTPUT
           
@@ -194,65 +191,79 @@ jobs:
           path: ${{ steps.package_dmg.outputs.dmg-name }}
           if-no-files-found: error
           
-      # --- UPLOAD CÁC FILE CÓ ĐÁNH SỐ PHIÊN BẢN (Ví dụ: tp-cli_0.0.1-test_amd64.deb) ---
-      # Bước này dùng source-file và destination-file, nhưng đây là R2-action khác
-      # do action ryand56 không hỗ trợ source-file/destination-file như ý muốn
-      # Chúng ta sẽ sử dụng action 'source-dir' và 'destination-dir' để upload file theo tên phiên bản
-      
-      # 15. Upload file có phiên bản (Ví dụ: TeaserPaste_CLI_Setup-0.0.1-test.exe)
-      - name: Upload Versioned Files to R2
+      # --- UPLOAD VÀ ĐỔI TÊN THÀNH 'LATEST' CHO WINDOWS ---
+      - name: Chuẩn bị file Windows cho R2
+        id: prepare_win_r2
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          # 1. Định nghĩa tên file gốc và file đích
+          ORIGINAL_FILE="Output/${{ steps.build.outputs.iss-output-name }}"
+          TARGET_DIR="r2_upload"
+          TARGET_FILE="teaserpaste-cli-latest-setup.exe"
+          
+          # 2. Tạo thư mục tạm và di chuyển file, đồng thời đổi tên thành 'latest'
+          mkdir -p $TARGET_DIR
+          mv $ORIGINAL_FILE $TARGET_DIR/$TARGET_FILE
+          echo "::set-output name=r2_source_dir::$TARGET_DIR"
+          
+      - name: Upload 'latest' (Windows) lên R2
+        if: matrix.os == 'windows-latest'
         uses: ryand56/r2-upload-action@v1.4
-        id: upload_versioned
         with:
           r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
           r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
-          source-dir: ${{ matrix.os == 'windows-latest' && 'Output' || '.' }}
-          destination-dir: /releases/${{ steps.get_version.outputs.VERSION_NUMBER }}
-          include: ${{ steps.build.outputs.upload-file-name }}
-          
-      # --- TẠO ALIAS 'LATEST' (Đổi tên file đã upload) ---
-      # Thao tác này dùng cURL và AWS CLI (có sẵn trên runner) để đổi tên file đã upload
-      
-      # 16. Đặt ALIAS 'LATEST' (Windows)
-      - name: Đặt ALIAS 'LATEST' cho Windows
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        run: |
-          source_key="releases/${{ steps.get_version.outputs.VERSION_NUMBER }}/${{ steps.build.outputs.upload-file-name }}"
-          target_key="teaserpaste-cli-latest-setup.exe"
-          
-          aws s3 cp s3://${{ secrets.R2_BUCKET_NAME }}/${source_key} \
-              s3://${{ secrets.R2_BUCKET_NAME }}/${target_key} \
-              --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
-              --copy-source-if-match "*" \
-              --recursive
+          source-dir: ${{ steps.prepare_win_r2.outputs.r2_source_dir }}
+          destination-dir: /
 
-      # 17. Đặt ALIAS 'LATEST' (Linux)
-      - name: Đặt ALIAS 'LATEST' cho Linux
+      # --- UPLOAD VÀ ĐỔI TÊN THÀNH 'LATEST' CHO LINUX ---
+      - name: Chuẩn bị file Linux cho R2
+        id: prepare_linux_r2
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
-          source_key="releases/${{ steps.get_version.outputs.VERSION_NUMBER }}/${{ steps.build.outputs.upload-file-name }}"
-          target_key="teaserpaste-cli-latest.deb"
+          ORIGINAL_FILE="${{ steps.package_deb.outputs.deb-name }}"
+          TARGET_DIR="r2_upload"
+          TARGET_FILE="teaserpaste-cli-latest.deb"
           
-          aws s3 cp s3://${{ secrets.R2_BUCKET_NAME }}/${source_key} \
-              s3://${{ secrets.R2_BUCKET_NAME }}/${target_key} \
-              --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
-              --copy-source-if-match "*" \
-              --recursive
-              
-      # 18. Đặt ALIAS 'LATEST' (macOS)
-      - name: Đặt ALIAS 'LATEST' cho macOS
+          mkdir -p $TARGET_DIR
+          mv $ORIGINAL_FILE $TARGET_DIR/$TARGET_FILE
+          echo "::set-output name=r2_source_dir::$TARGET_DIR"
+          
+      - name: Upload 'latest' (Linux) lên R2
+        if: matrix.os == 'ubuntu-latest'
+        uses: ryand56/r2-upload-action@v1.4
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
+          source-dir: ${{ steps.prepare_linux_r2.outputs.r2_source_dir }}
+          destination-dir: /
+
+      # --- UPLOAD VÀ ĐỔI TÊN THÀNH 'LATEST' CHO MACOS ---
+      - name: Chuẩn bị file macOS cho R2
+        id: prepare_macos_r2
         if: matrix.os == 'macos-latest'
         shell: bash
         run: |
-          source_key="releases/${{ steps.get_version.outputs.VERSION_NUMBER }}/${{ steps.build.outputs.upload-file-name }}"
-          target_key="teaserpaste-cli-latest.dmg"
+          ORIGINAL_FILE="${{ steps.package_dmg.outputs.dmg-name }}"
+          TARGET_DIR="r2_upload"
+          TARGET_FILE="teaserpaste-cli-latest.dmg"
           
-          aws s3 cp s3://${{ secrets.R2_BUCKET_NAME }}/${source_key} \
-              s3://${{ secrets.R2_BUCKET_NAME }}/${target_key} \
-              --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
-              --copy-source-if-match "*" \
-              --recursive
+          mkdir -p $TARGET_DIR
+          mv $ORIGINAL_FILE $TARGET_DIR/$TARGET_FILE
+          echo "::set-output name=r2_source_dir::$TARGET_DIR"
+          
+      - name: Upload 'latest' (macOS) lên R2
+        if: matrix.os == 'macos-latest'
+        uses: ryand56/r2-upload-action@v1.4
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          r2-bucket: ${{ secrets.R2_BUCKET_NAME }}
+          source-dir: ${{ steps.prepare_macos_r2.outputs.r2_source_dir }}
+          destination-dir: /
