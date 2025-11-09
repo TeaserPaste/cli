@@ -3,11 +3,11 @@
 [Setup]
 AppId={{203354a2-1cef-4e0d-9102-2b1d6b59b730}}
 AppName=TeaserPaste CLI
-AppVersion=0.6.0
+AppVersion=0.6.5
 AppPublisher=Teaserverse
 DefaultDirName={autopf}\TeaserPaste CLI
 DefaultGroupName=TeaserPaste CLI
-OutputBaseFilename=TeaserPaste_CLI_Setup-0.6.0
+OutputBaseFilename=TeaserPaste_CLI_Setup-0.6.5
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

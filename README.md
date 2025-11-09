@@ -1,24 +1,24 @@
 # TeaserPaste CLI (`tp`)
 **TeaserPaste CLI** (`tp`) là một công cụ dòng lệnh mạnh mẽ giúp bạn tương tác với dịch vụ [TeaserPaste](https://paste.teaserverse.online) trực tiếp từ terminal. Dễ dàng xem, tạo, và quản lý snippets mà không cần rời khỏi môi trường làm việc của bạn.
 
-**Phiên bản hiện tại:** 0.6.0 (Beta) - *Vui lòng lưu ý rằng các tính năng và cú pháp có thể thay đổi.*
+**Phiên bản hiện tại:** 0.6.5 (Beta) - *Vui lòng lưu ý rằng các tính năng và cú pháp có thể thay đổi.*
 
 # Cài đặt
 
 - Yêu cầu [Node.js](https://nodejs.org/en/download) v18 trở lên.
-```
+```bash
 npm install -g teaserpaste-cli
 ```
 
 # Cấu hình lần đầu
 Để không phải gõ API key mỗi lần, hãy lưu private key của bạn một lần duy nhất:
-```
+```bash
 tp config set token "priv_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```
 
 # Hướng dẫn sử dụng nhanh
 ## Tạo và Sao chép Snippet
-```
+```bash
 # Cách thân thiện nhất (CLI sẽ hỏi bạn từng bước)
 tp create -i
 
@@ -34,7 +34,7 @@ tp create --title "Ghi chú" --content "Nội dung ghi chú"
 
 ## Thực thi Mã từ Snippet
 Thực thi mã trực tiếp từ một snippet. CLI sẽ hiển thị cảnh báo và yêu cầu xác nhận trước khi chạy.
-```
+```bash
 # Tự động phát hiện ngôn ngữ và chạy (hỗ trợ python, node, bash...)
 tp run <snippet_id>
 
@@ -42,13 +42,25 @@ tp run <snippet_id>
 tp run <snippet_id> -- "node --snippet --arg1"
 ```
 
-## Xem và Quản lý Snippet
+## Tương tác (Star) Snippet
+```bash
+# Đánh dấu "sao" (star) cho một snippet bạn thích
+tp star <snippet_id>
+
+# Gỡ "sao"
+tp star <snippet_id> --unstar
 ```
+
+## Xem và Quản lý Snippet
+```bash
 # Xem thống kê nhanh về các snippet của bạn
 tp stats
 
 # Liệt kê các snippet của bạn
 tp list
+
+# Bao gồm các snippet đã xóa (trong thùng rác)
+tp list --includeDeleted
 
 # Xem chi tiết một snippet
 tp view <snippet_id>
@@ -65,12 +77,15 @@ tp view <snippet_id> --url
 # Tìm kiếm public snippets với phân trang
 tp search "javascript example" --limit 5 --from 10
 
-# Xóa một snippet
+# Xóa một snippet (chuyển vào thùng rác)
 tp delete <snippet_id>
+
+# Khôi phục snippet từ thùng rác
+tp restore <snippet_id>
 ```
 
 # Trợ giúp
-```
+```bash
 # Để xem tất cả các lệnh và tùy chọn có sẵn:
 tp --help
 

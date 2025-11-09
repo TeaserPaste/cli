@@ -239,7 +239,15 @@ async function createSnippet(token, args) {
 async function listSnippets(token, args) {
     try {
         const parsedArgs = parseArgs(args);
-        const snippets = await apiRequest('/listSnippets', 'POST', { limit: parsedArgs.limit ? parseInt(parsedArgs.limit, 10) : 20, visibility: parsedArgs.visibility }, token);
+        // SỬA ĐỔI: Dùng cờ ngắn gọn -d thay cho --includeDeleted
+        const includeDeleted = parsedArgs.d || parsedArgs.includeDeleted || false;
+
+        const snippets = await apiRequest('/listSnippets', 'POST', { 
+            limit: parsedArgs.limit ? parseInt(parsedArgs.limit, 10) : 20, 
+            visibility: parsedArgs.visibility,
+            includeDeleted: includeDeleted
+        }, token);
+        
         if (!snippets || snippets.length === 0) {
             console.log('\nKhông tìm thấy snippet nào.\n');
             return;
@@ -278,10 +286,19 @@ async function updateSnippet(id, token, args) {
     try {
         const parsedArgs = parseArgs(args);
         delete parsedArgs['_']; delete parsedArgs.token;
+        // Xóa cờ -d nếu nó được truyền vào nhầm
+        delete parsedArgs.d;
+        delete parsedArgs.includeDeleted;
+
         if (Object.keys(parsedArgs).length === 0) {
             console.error('\n❌ Lỗi: Phải cung cấp ít nhất một trường để cập nhật (ví dụ: --title "Tiêu đề mới").\n');
             return;
         }
+        // Thêm logic xử lý tags (chuỗi -> mảng)
+        if (typeof parsedArgs.tags === 'string') {
+             parsedArgs.tags = parsedArgs.tags.split(',').map(t => t.trim()).filter(Boolean);
+        }
+
         const updatedSnippet = await apiRequest('/updateSnippet', 'PATCH', { snippetId: id, updates: parsedArgs }, token);
         console.log(`\n✅ Snippet đã được cập nhật thành công!`);
         printSnippet(updatedSnippet);
@@ -309,6 +326,69 @@ async function deleteSnippet(id, token) {
          }
     }
 }
+
+// --- LỆNH MỚI: restoreSnippet ---
+async function restoreSnippet(id, token) {
+    if (!id) {
+        console.error('\n❌ Lỗi: Thiếu ID snippet cho lệnh \'restore\'.\n');
+        return;
+    }
+    const configToken = await ConfigManager.getToken();
+    const finalToken = token || configToken;
+    if (!finalToken) {
+        console.error('\n❌ Lỗi: Lệnh \'restore\' yêu cầu xác thực. Vui lòng dùng `tp config set token <token>` hoặc cung cấp `--token`.\n');
+        return;
+    }
+    try {
+        const inquirer = await getInquirer();
+        const { confirm } = await inquirer.prompt([{ type: 'confirm', name: 'confirm', message: `Bạn có chắc chắn muốn khôi phục snippet '${id}' từ thùng rác?`, default: true }]);
+        if (!confirm) {
+            console.log('\nĐã hủy bỏ thao tác.\n');
+            return;
+        }
+        const result = await apiRequest('/restoreSnippet', 'POST', { snippetId: id }, finalToken);
+        console.log(`\n✅ ${result.message}\n`);
+    } catch (error) {
+        if (error.message.includes('prompt was canceled')) {
+            console.log('\nThoát chế độ tương tác.\n');
+        } else {
+            console.error(`\n❌ Lỗi khi khôi phục snippet: ${error.message}\n`);
+        }
+    }
+}
+
+// --- LỆNH MỚI: starSnippet ---
+async function starSnippet(id, token, { unstar = false }) {
+    if (!id) {
+        console.error('\n❌ Lỗi: Thiếu ID snippet cho lệnh \'star\'.\n');
+        return;
+    }
+    const configToken = await ConfigManager.getToken();
+    const finalToken = token || configToken;
+    if (!finalToken) {
+        console.error('\n❌ Lỗi: Lệnh \'star\' yêu cầu xác thực. Vui lòng dùng `tp config set token <token>` hoặc cung cấp `--token`.\n');
+        return;
+    }
+
+    try {
+        const star = !unstar;
+        const result = await apiRequest('/starSnippet', 'POST', { snippetId: id, star: star }, finalToken);
+        
+        if (result.status === 'starred') {
+            console.log(`\n⭐ Đã star snippet! (Tổng số star: ${result.starCount})\n`);
+        } else if (result.status === 'unstarred') {
+            console.log(`\n💔 Đã unstar snippet. (Tổng số star: ${result.starCount})\n`);
+        } else if (result.status === 'already_starred' || result.status === 'already_unstarred') {
+            console.log(`\nℹ️ Snippet đã ở trạng thái này rồi. (Tổng số star: ${result.starCount})\n`);
+        } else {
+             console.log(`\n✅ Đã cập nhật trạng thái star. (Tổng số star: ${result.starCount})\n`);
+        }
+
+    } catch (error) {
+        console.error(`\n❌ Lỗi khi star snippet: ${error.message}\n`);
+    }
+}
+
 
 async function searchSnippets(term, token, args) {
     if (!term) {
@@ -341,6 +421,7 @@ async function searchSnippets(term, token, args) {
     }
 }
 
+// --- CẬP NHẬT: copySnippet (Sử dụng API mới) ---
 async function copySnippet(id, token, args) {
     if (!id) {
         console.error('\n❌ Lỗi: Thiếu ID snippet cho lệnh \'copy\'.\n');
@@ -349,45 +430,25 @@ async function copySnippet(id, token, args) {
     const configToken = await ConfigManager.getToken();
     const finalToken = token || configToken;
     if (!finalToken) {
-        console.error('\n❌ Lỗi: Lệnh \'copy\' yêu cầu xác thực. Vui lòng dùng `tp config set token <token>` hoặc cung cấp `--token`.\n');
+        console.error('\n❌ Lỗi: Lệnh \'copy\' yêu cầu xác thực (private key). Vui lòng dùng `tp config set token <token>`.\n');
         return;
     }
+
     try {
         const parsedArgs = parseArgs(args);
-        console.log(`\nĐang lấy nội dung snippet gốc '${id}'...`);
-        const sourceSnippet = await apiRequest('/getSnippet', 'POST', { snippetId: id, password: parsedArgs.password }, finalToken);
-        console.log('Lấy snippet gốc thành công.');
-        const newSnippetData = {
-            title: sourceSnippet.title,
-            content: sourceSnippet.content,
-            language: sourceSnippet.language,
-            visibility: sourceSnippet.visibility,
-            tags: sourceSnippet.tags || [],
-        };
-        const overrides = {
-            title: parsedArgs.title,
-            visibility: parsedArgs.visibility,
-            password: parsedArgs.password,
-            tags: parsedArgs.tags,
-            expires: parsedArgs.expires,
-        };
-        Object.keys(overrides).forEach(key => {
-            if (overrides[key] === undefined) {
-                delete overrides[key];
-            }
-        });
-        if (overrides.password && !overrides.visibility) {
-            overrides.visibility = 'unlisted';
-        }
-        const finalSnippetData = { ...newSnippetData, ...overrides };
-        if (typeof finalSnippetData.tags === 'string') {
-            finalSnippetData.tags = finalSnippetData.tags.split(',').map(t => t.trim()).filter(Boolean);
-        }
-        console.log('Đang tạo snippet mới trên tài khoản của bạn...');
-        const newSnippet = await apiRequest('/createSnippet', 'POST', finalSnippetData, finalToken);
-        console.log(`\n✅ Đã sao chép thành công! ID snippet mới: ${newSnippet.id}\n`);
-        const url = `${BASE_WEB_URL}/snippet/${newSnippet.id}`;
+        
+        console.log(`\nĐang gửi yêu cầu "copy" (fork) cho snippet '${id}'...`);
+        
+        const result = await apiRequest('/copySnippet', 'POST', { 
+            snippetId: id,
+            password: parsedArgs.password // Truyền password để có thể copy snippet unlisted
+        }, finalToken);
+
+        console.log(`\n✅ ${result.message}`);
+        console.log(`ID snippet mới (private): ${result.newSnippetId}`);
+        const url = `${BASE_WEB_URL}/snippet/${result.newSnippetId}`;
         console.log(`URL: ${url}\n`);
+
     } catch (error) {
         console.error(`\n❌ Lỗi khi sao chép snippet: ${error.message}\n`);
     }
@@ -514,7 +575,8 @@ async function showStats(token) {
     try {
         console.log('\nĐang tải dữ liệu thống kê...');
         const userInfo = await apiRequest('/getUserInfo', 'GET', null, token);
-        const allSnippets = await apiRequest('/listSnippets', 'POST', { limit: 500 }, token);
+        // Lấy cả các snippet đã xóa để thống kê
+        const allSnippets = await apiRequest('/listSnippets', 'POST', { limit: 500, includeDeleted: true }, token); 
 
         if (!allSnippets || allSnippets.length === 0) {
             console.log('Bạn chưa có snippet nào để thống kê.');
@@ -547,6 +609,7 @@ async function showStats(token) {
             'Public': visibilityCounts.public || 0,
             'Unlisted': visibilityCounts.unlisted || 0,
             'Private': visibilityCounts.private || 0,
+            'Deleted (Thùng rác)': visibilityCounts.deleted || 0,
         }]);
 
         console.log('\n🌐 5 Ngôn ngữ hàng đầu');
@@ -612,8 +675,9 @@ function parseArgs(argv) {
 }
 
 function showHelp() {
+    // Cập nhật phiên bản lên 0.6.5
     console.log(`
---- CLI TeaserPaste (v0.6.0) ---
+--- CLI TeaserPaste (v0.6.5) ---
 
 Sử dụng: 
   tp <lệnh> [tham số] [tùy chọn]
@@ -621,13 +685,15 @@ Sử dụng:
 Các lệnh:
   view <id>                 Xem một snippet.
   clone <id> [filename]     Tải nội dung snippet về thành một file.
-  copy <id>                 Sao chép (fork) một snippet vào tài khoản của bạn.
+  copy <id>                 Sao chép (fork) snippet vào tài khoản (tạo bản private).
+  star <id>                 Đánh dấu "sao" (star) cho một snippet.
+  restore <id>              Khôi phục một snippet đã bị xóa (từ thùng rác).
   run <id> [lệnh]           Thực thi snippet (ví dụ: "node --snippet").
   stats                     Xem thống kê về các snippet của bạn.
   list                      Liệt kê các snippet của bạn.
   create                    Tạo một snippet mới.
   update <id>               Cập nhật một snippet đã có.
-  delete <id>               Xóa một snippet.
+  delete <id>               Xóa một snippet (chuyển vào thùng rác).
   search <từ khóa>          Tìm kiếm public snippets.
   user view                 Xem thông tin người dùng của bạn.
   config <set|get|clear>    Quản lý cấu hình CLI.
@@ -636,6 +702,12 @@ Tùy chọn cho 'view':
   --raw                     Chỉ in ra nội dung thô của snippet.
   --copy                    Sao chép nội dung snippet vào clipboard.
   --url                     Hiển thị URL của snippet.
+
+Tùy chọn cho 'star':
+  --unstar                  (cho 'star') Gỡ "sao" (unstar) thay vì star.
+  
+Tùy chọn cho 'list':
+  -d, --includeDeleted      Bao gồm các snippet đã bị xóa (trong thùng rác).
 
 Tùy chọn chung:
   --token <key>
@@ -663,7 +735,7 @@ async function main() {
             return;
         }
         if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
-            console.log(pkg.version);
+            console.log(pkg.version); // Sẽ hiển thị 0.6.5
             return;
         }
 
@@ -690,9 +762,11 @@ async function main() {
             case 'update': await updateSnippet(subArgs[0], token, rawArgs); break;
             case 'delete': await deleteSnippet(subArgs[0], token); break;
             case 'search': await searchSnippets(subArgs[0], token, rawArgs); break;
-            case 'copy': await copySnippet(subArgs[0], token, rawArgs); break;
+            case 'copy': await copySnippet(subArgs[0], token, args); break;
             case 'run': await runSnippet(subArgs[0], subArgs.slice(1).join(' '), token, rawArgs); break;
             case 'stats': await showStats(token); break;
+            case 'star': await starSnippet(subArgs[0], token, { unstar: args.unstar }); break;
+            case 'restore': await restoreSnippet(subArgs[0], token); break;
             default:
                 console.error(`\n❌ Lỗi: Lệnh '${command}' không tồn tại.\n`);
                 showHelp();
@@ -705,4 +779,3 @@ async function main() {
 }
 
 main();
-
