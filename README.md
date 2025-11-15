@@ -4,7 +4,7 @@
 
 **Current Version:** 0.6.6 (Beta) - Please note that features and syntax are subject to change.
 
-## Cài đặt
+## Installation
 
 - Requires [Node.js](https://nodejs.org/en/download) v18 or higher.
 ```bash
@@ -55,7 +55,7 @@ tp star <snippet_id>
 tp star <snippet_id> --unstar
 ```
 
-### Xem và Quản lý Snippet
+### Viewing and Managing Snippets
 ```bash
 # See a quick overview of your snippet stats
 tp stats
@@ -99,5 +99,5 @@ tp --version
 
 > Detailed Docs: https://docs.teaserverse.online/triple-tool/teaserpaste/cli
 
-Giấy phép
+License:
 [MIT](LICENSE.txt)
