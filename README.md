@@ -1,99 +1,103 @@
 # TeaserPaste CLI (`tp`)
-**TeaserPaste CLI** (`tp`) là một công cụ dòng lệnh mạnh mẽ giúp bạn tương tác với dịch vụ [TeaserPaste](https://paste.teaserverse.online) trực tiếp từ terminal. Dễ dàng xem, tạo, và quản lý snippets mà không cần rời khỏi môi trường làm việc của bạn.
 
-**Phiên bản hiện tại:** 0.6.5 (Beta) - *Vui lòng lưu ý rằng các tính năng và cú pháp có thể thay đổi.*
+**TeaserPaste CLI** (`tp`) is a powerful command-line tool that helps you interact with the [TeaserPaste](https://paste.teaserverse.online) service directly from your terminal. Easily view, create, and manage snippets without leaving your workflow.
 
-# Cài đặt
+**Current Version:** 0.6.6 (Beta) - Please note that features and syntax are subject to change.
 
-- Yêu cầu [Node.js](https://nodejs.org/en/download) v18 trở lên.
+## Cài đặt
+
+- Requires [Node.js](https://nodejs.org/en/download) v18 or higher.
 ```bash
 npm install -g teaserpaste-cli
 ```
 
-# Cấu hình lần đầu
-Để không phải gõ API key mỗi lần, hãy lưu private key của bạn một lần duy nhất:
+## First-Time Config
+
+To avoid typing your API key every time, save your private key once:
 ```bash
 tp config set token "priv_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```
 
-# Hướng dẫn sử dụng nhanh
-## Tạo và Sao chép Snippet
+## Quick Start Guide
+
+### Creating and Copying Snippets
 ```bash
-# Cách thân thiện nhất (CLI sẽ hỏi bạn từng bước)
+# The friendliest way (the CLI will prompt you)
 tp create -i
 
-# Sao chép (fork) một snippet vào tài khoản của bạn
-tp copy <snippet_id> --title "Bản sao của tôi"
+# Copy (fork) a snippet to your account
+tp copy <snippet_id> --title "My copy"
 
-# Cách chuyên nghiệp (tạo snippet từ nội dung file)
+# The professional way (create snippet from file content)
 cat my_script.js | tp create --title "My Script" --language "javascript"
 
-# Cách nhanh nhất (cung cấp đủ tham số)
-tp create --title "Ghi chú" --content "Nội dung ghi chú"
+# The fastest way (provide all arguments)
+tp create --title "My Note" --content "Note content"
 ```
 
-## Thực thi Mã từ Snippet
-Thực thi mã trực tiếp từ một snippet. CLI sẽ hiển thị cảnh báo và yêu cầu xác nhận trước khi chạy.
+### Executing Code from Snippets
+
+Execute code directly from a snippet. The CLI will show a warning and require confirmation before running.
 ```bash
-# Tự động phát hiện ngôn ngữ và chạy (hỗ trợ python, node, bash...)
+# Auto-detect language and run (supports python, node, bash...)
 tp run <snippet_id>
 
-# Cung cấp lệnh thực thi tùy chỉnh (thay thế --snippet bằng tên file tạm)
+# Provide a custom execution command (replaces --snippet with the temp filename)
 tp run <snippet_id> -- "node --snippet --arg1"
 ```
 
-## Tương tác (Star) Snippet
+### Interacting (Starring) Snippets
 ```bash
-# Đánh dấu "sao" (star) cho một snippet bạn thích
+# Star a snippet you like
 tp star <snippet_id>
 
-# Gỡ "sao"
+# Unstar it
 tp star <snippet_id> --unstar
 ```
 
-## Xem và Quản lý Snippet
+### Xem và Quản lý Snippet
 ```bash
-# Xem thống kê nhanh về các snippet của bạn
+# See a quick overview of your snippet stats
 tp stats
 
-# Liệt kê các snippet của bạn
+# List your snippets
 tp list
 
-# Bao gồm các snippet đã xóa (trong thùng rác)
+# Include deleted snippets (in trash)
 tp list --includeDeleted
 
-# Xem chi tiết một snippet
+# View details of a snippet
 tp view <snippet_id>
 
-# Chỉ lấy nội dung thô (để dùng trong script)
+# Get only the raw content (for scripting)
 tp view <snippet_id> --raw
 
-# Sao chép nội dung vào clipboard
+# Copy content to clipboard
 tp view <snippet_id> --copy
 
-# Mở snippet trên trình duyệt
+# Open the snippet in your browser
 tp view <snippet_id> --url
 
-# Tìm kiếm public snippets với phân trang
+# Search public snippets with pagination
 tp search "javascript example" --limit 5 --from 10
 
-# Xóa một snippet (chuyển vào thùng rác)
+# Delete a snippet (moves to trash)
 tp delete <snippet_id>
 
-# Khôi phục snippet từ thùng rác
+# Restore a snippet from the trash
 tp restore <snippet_id>
 ```
 
-# Trợ giúp
+## Help
 ```bash
-# Để xem tất cả các lệnh và tùy chọn có sẵn:
+# To see all available commands and options:
 tp --help
 
-# Để xem phiên bản CLI hiện tại:
+# To see the current CLI version:
 tp --version
 ```
 
-> Tài liệu chi tiết: https://docs.teaserverse.online/triple-tool/teaserpaste/cli
+> Detailed Docs: https://docs.teaserverse.online/triple-tool/teaserpaste/cli
 
 Giấy phép
 [MIT](LICENSE.txt)

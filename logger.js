@@ -1,16 +1,16 @@
 let isDebug = false;
 
 /**
- * Khởi tạo logger. Được gọi một lần từ cli.js.
- * @param {boolean} debugFlag - True nếu cờ --debug được bật.
+ * Initializes the logger. Called once from cli.js.
+ * @param {boolean} debugFlag - True if the --debug flag is enabled.
  */
 function init(debugFlag) {
     isDebug = !!debugFlag;
 }
 
 /**
- * Ghi log ra console nếu chế độ debug đang bật.
- * @param {...any} args - Các đối số cần ghi log.
+ * Logs to the console if debug mode is enabled.
+ * @param {...any} args - Arguments to log.
  */
 function log(...args) {
     if (isDebug) {
@@ -19,8 +19,8 @@ function log(...args) {
 }
 
 /**
- * Ghi lỗi ra console nếu chế độ debug đang bật.
- * @param {...any} args - Các đối số lỗi cần ghi.
+ * Logs an error to the console if debug mode is enabled.
+ * @param {...any} args - Error arguments to log.
  */
 function error(...args) {
      if (isDebug) {

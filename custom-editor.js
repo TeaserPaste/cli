@@ -1,66 +1,77 @@
-const readline = require('readline');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
-function openCustomTUI(initialContent = '') {
-    return new Promise((resolve, reject) => {
-        const { stdin, stdout } = process;
-        let content = initialContent;
-        let cursorPosition = content.length;
+/**
+ * Dynamically import the cliedit library (which is ESM)
+ * into TeaserPaste CLI (which is CommonJS).
+ * @returns {Promise<import('cliedit').openEditor>}
+ */
+async function getCliedit() {
+    try {
+        const { openEditor } = await import('cliedit');
+        return openEditor;
+    } catch (err) {
+        console.error("Error: Could not load 'cliedit' dependency.");
+        console.error("Please run 'npm install -g teaserpaste-cli' to update.");
+        throw err;
+    }
+}
 
-        const cleanup = () => {
-            stdin.setRawMode(false);
-            stdin.pause();
-            stdin.removeAllListeners('data');
-            stdout.write('\x1B[?25h'); // Show cursor
-        };
+/**
+ * Opens the In-Terminal Editor (using cliedit) by
+ * using a temporary file.
+ * @param {string} initialContent - Initial content to load into the editor.
+ * @returns {Promise<string>} - The final content if saved (Ctrl+S).
+ * @throws {Error} - Throws an error if the user cancels (Ctrl+Q).
+ */
+async function openCustomTUI(initialContent = '') {
+    const openEditor = await getCliedit();
+    
+    // Create a temp file for cliedit to read and write
+    const tempFile = path.join(os.tmpdir(), `tp-cliedit-${Date.now()}.tmp`);
+    let result = { saved: false, content: initialContent };
 
-        const render = () => {
-            readline.cursorTo(stdout, 0, 0);
-            readline.clearScreenDown(stdout);
-            stdout.write('TeaserPaste Editor | Ctrl+S: Save & Exit | Ctrl+C: Cancel\r\n');
-            stdout.write('----------------------------------------------------------\r\n');
-            stdout.write(content);
-            readline.cursorTo(stdout, cursorPosition, Math.floor(cursorPosition / stdout.columns) + 2);
-        };
+    try {
+        // 1. Write initial content (if any) to the temp file
+        await fs.promises.writeFile(tempFile, initialContent, 'utf-8');
 
-        stdin.setRawMode(true);
-        stdin.resume();
-        stdin.setEncoding('utf8');
-        stdout.write('\x1B[?25l'); // Hide cursor
+        console.log('\nOpening In-Terminal Editor [Beta]...');
+        
+        // (GHOST TUI FIX) Add a small delay before entering raw mode
+        // to allow the terminal to process.
+        await new Promise(res => setTimeout(res, 50));
 
-        render();
+        // 2. Run cliedit
+        result = await openEditor(tempFile);
 
-        const onData = (key) => {
-            switch (key) {
-                case '\u0013': // Ctrl+S
-                    cleanup();
-                    resolve(content);
-                    break;
-                case '\u0003': // Ctrl+C
-                    cleanup();
-                    reject(new Error('Thao tác soạn thảo đã bị hủy.'));
-                    break;
-                case '\x7f': // Backspace
-                    if (cursorPosition > 0) {
-                        content = content.slice(0, cursorPosition - 1) + content.slice(cursorPosition);
-                        cursorPosition--;
-                    }
-                    break;
-                case '\r': // Enter
-                    content = content.slice(0, cursorPosition) + '\n' + content.slice(cursorPosition);
-                    cursorPosition++;
-                    break;
-                default: // Regular characters
-                    if (key >= ' ') {
-                        content = content.slice(0, cursorPosition) + key + content.slice(cursorPosition);
-                        cursorPosition++;
-                    }
-                    break;
-            }
-            render();
-        };
+        // (GHOST TUI FIX) Add a delay after exiting raw mode
+        // to prevent display artifacts in the terminal.
+        await new Promise(res => setTimeout(res, 50));
 
-        stdin.on('data', onData);
-    });
+    } catch (error) {
+        // Ensure the terminal is restored even if there's an error
+        await new Promise(res => setTimeout(res, 50));
+        console.error(`\nError running cliedit: ${error.message}`);
+        throw new Error('Could not start In-Terminal Editor.');
+    } finally {
+        // 3. Always clean up the temp file
+        try {
+            await fs.promises.unlink(tempFile);
+        } catch (e) {
+            // Ignore if the file was already deleted
+        }
+    }
+
+    // 4. Handle the result
+    if (result.saved) {
+        // User pressed Ctrl+S
+        return result.content;
+    } else {
+        // User pressed Ctrl+Q (quit without saving)
+        // Throw an error so cli.js can catch it as a "cancel"
+        throw new Error('Editing operation was canceled.');
+    }
 }
 
 module.exports = { openCustomTUI };
