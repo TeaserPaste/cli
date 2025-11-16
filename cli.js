@@ -910,9 +910,8 @@ function parseArgs(argv) {
 }
 
 function showHelp() {
-    // Update version to 0.6.6
     console.log(`
---- TeaserPaste CLI (v0.6.6) ---
+--- TeaserPaste CLI (v0.6.7) ---
 
 Usage: 
   tp <command> [arguments] [options]

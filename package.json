@@ -1,6 +1,6 @@
 {
   "name": "teaserpaste-cli",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "CLI Client for TeaserPaste - View, create, and manage snippets.",
   "license": "MIT",
   "author": {
@@ -27,7 +27,7 @@
     "inquirer": "^12.10.0",
     "keytar": "^7.9.0",
     "node-fetch": "^2.7.0",
-    "cliedit": "^0.1.1"
+    "cliedit": "^0.1.2"
   },
   "preferGlobal": true
 }

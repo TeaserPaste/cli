@@ -2,7 +2,7 @@
 
 **TeaserPaste CLI** (`tp`) is a powerful command-line tool that helps you interact with the [TeaserPaste](https://paste.teaserverse.online) service directly from your terminal. Easily view, create, and manage snippets without leaving your workflow.
 
-**Current Version:** 0.6.6 (Beta) - Please note that features and syntax are subject to change.
+**Current Version:** 0.6.7 (Beta) - Please note that features and syntax are subject to change.
 
 ## Installation
 
@@ -10,6 +10,8 @@
 ```bash
 npm install -g teaserpaste-cli
 ```
+
+**For Windows users, you can choose install via [EXE](https://github.com/TeaserPaste/cli/releases) file *(Experiment)*.**
 
 ## First-Time Config
 
@@ -97,7 +99,7 @@ tp --help
 tp --version
 ```
 
-> Detailed Docs: https://docs.teaserverse.online/triple-tool/teaserpaste/cli
+> Detailed Docs (Vietnamese-only): https://docs.teaserverse.online/triple-tool/teaserpaste/cli
 
 License:
 [MIT](LICENSE.txt)
