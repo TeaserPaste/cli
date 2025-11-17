@@ -1,13 +1,14 @@
-; Script Inno Setup hoàn chỉnh cho TeaserPaste CLI (V0.5.0+)
+; Complete Inno Setup script for TeaserPaste CLI (V0.6.8+)
+; Changed this file into English
 
 [Setup]
 AppId={{203354a2-1cef-4e0d-9102-2b1d6b59b730}}
 AppName=TeaserPaste CLI
-AppVersion=0.6.7
+AppVersion=0.6.8
 AppPublisher=Teaserverse
 DefaultDirName={autopf}\TeaserPaste CLI
 DefaultGroupName=TeaserPaste CLI
-OutputBaseFilename=TeaserPaste_CLI_Setup-0.6.7
+OutputBaseFilename=TeaserPaste_CLI_Setup-0.6.8
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -15,14 +16,14 @@ PrivilegesRequired=admin
 SetupIconFile=assets\paste-black.ico
 
 [Tasks]
-Name: "addtopath"; Description: "Thêm thư mục ứng dụng vào PATH hệ thống (khuyến nghị)"; GroupDescription: "Tùy chỉnh:"; Flags: checkedonce
+Name: "addtopath"; Description: "Add application folder to system PATH (recommended)"; GroupDescription: "Customization:"; Flags: checkedonce
 
 [Files]
 Source: "dist\tp.exe"; DestDir: "{app}"; DestName: "tp.exe"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\TeaserPaste CLI Documentation"; Filename: "https://docs.teaserverse.online/triple-tool/teaserpaste/cli"
-Name: "{group}\Gỡ cài đặt TeaserPaste CLI"; Filename: "{uninstallexe}"
+Name: "{group}\Uninstall TeaserPaste CLI"; Filename: "{uninstallexe}"
 
 [Registry]
 Root: "HKLM"; Subkey: "System\CurrentControlSet\Control\Session Manager\Environment"; \
@@ -61,7 +62,7 @@ begin
   end;
 end;
 
-// *** SỬA LỖI: Lấy đường dẫn cài đặt cũ từ Registry một cách an toàn ***
+// *** FIX: Safely retrieve previous install path from Registry ***
 function GetPreviousInstallPath(): string;
 var
   UninstallPath: string;
@@ -81,7 +82,7 @@ begin
   Result := UninstallPath;
 end;
 
-// Chạy trước khi cài đặt để kiểm tra phiên bản cũ
+// Run before installation to check for old version
 function InitializeSetup(): Boolean;
 var
   AppPath: string;
@@ -98,8 +99,8 @@ begin
     begin
       while IsFileInUse(TPExePath) do
       begin
-        Msg := 'Trình cài đặt đã phát hiện TeaserPaste CLI đang được sử dụng, có thể bởi một cửa sổ Terminal đang mở.' + #13#10 + #13#10 +
-               'Vui lòng đóng tất cả các cửa sổ Terminal và nhấn OK để tiếp tục, hoặc Cancel để thoát.';
+        Msg := 'The installer has detected that TeaserPaste CLI is currently in use, possibly by an open Terminal window.' + #13#10 + #13#10 +
+               'Please close all Terminal windows and press OK to continue, or Cancel to exit.';
         if MsgBox(Msg, mbConfirmation, MB_OKCANCEL) = IDCANCEL then
         begin
           Result := False;
@@ -118,13 +119,13 @@ var
 begin
   if not RegQueryStringValue(HKEY_LOCAL_MACHINE, 'Software\Teaserverse\TeaserPasteCLI', 'PathAdded', PathAddedFlag) or (PathAddedFlag <> '1') then
   begin
-    Log('Tác vụ dọn dẹp PATH đã được bỏ qua vì nó không được thêm bởi trình cài đặt.');
+    Log('PATH cleanup task skipped because it was not added by the installer.');
     exit;
   end;
 
   if not RegQueryStringValue(HKEY_LOCAL_MACHINE, 'System\CurrentControlSet\Control\Session Manager\Environment', 'Path', OriginalPath) then
   begin
-    Log('Không đọc được biến môi trường PATH.');
+    Log('Unable to read PATH environment variable.');
     exit;
   end;
 
@@ -143,9 +144,9 @@ begin
   end;
 
   if RegWriteStringValue(HKEY_LOCAL_MACHINE, 'System\CurrentControlSet\Control\Session Manager\Environment', 'Path', NewPath) then
-    Log('Đã xóa ' + AppPath + ' khỏi PATH thành công.')
+    Log(AppPath + ' successfully removed from PATH.')
   else
-    Log('Lỗi khi ghi lại biến môi trường PATH.');
+    Log('Error writing PATH environment variable.');
 
   SendMessage(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 'Environment');
 end;
@@ -201,9 +202,8 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep = ssDone) and (not IsSilent()) then
   begin
-    MsgBox('Cài đặt TeaserPaste CLI hoàn tất!' + #13#10 + #13#10 +
-           'Lệnh "tp" hiện đã sẵn sàng để sử dụng. Nếu lệnh không hoạt động, vui lòng thử mở một cửa sổ Terminal mới.',
+    MsgBox('TeaserPaste CLI installation completed!' + #13#10 + #13#10 +
+           'The "tp" command is now ready to use. If the command does not work, please try opening a new Terminal window.',
            mbInformation, MB_OK);
   end;
 end;
-
