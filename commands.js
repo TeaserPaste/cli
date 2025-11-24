@@ -5,10 +5,9 @@ const { spawn } = require('child_process');
 const ConfigManager = require('./config-manager');
 const logger = require('./logger');
 const { openCustomTUI } = require('./custom-editor');
+const { MepCLI } = require('mepcli'); // CodeTease Power!
 const {
-    BASE_API_URL,
     BASE_WEB_URL,
-    getInquirer,
     getClipboardy,
     readFromStdin,
     apiRequest,
@@ -79,30 +78,85 @@ async function createSnippet(token, rawArgs, parseArgs) {
         const isInteractive = parsedArgs.i || parsedArgs.interactive;
         const hasContentFlag = parsedArgs.content;
         const hasFileFlag = parsedArgs.file;
-        const inquirer = await getInquirer();
 
         if (isInteractive) {
-            let answers = await inquirer.prompt([
-                { type: 'input', name: 'title', message: 'Snippet title:', default: 'Untitled' },
-                { type: 'input', name: 'language', message: 'Language:', default: 'plaintext' },
-                { type: 'list', name: 'visibility', message: 'Visibility:', choices: ['unlisted', 'public', 'private'], default: 'unlisted' },
-                { type: 'input', name: 'password', message: 'Password (optional):', when: (ans) => ans.visibility === 'unlisted' },
-                { type: 'input', name: 'tags', message: 'Tags (comma-separated):' },
-                { type: 'input', name: 'expires', message: 'Expiration (e.g., 1h, 7d, 2w):' },
-                { type: 'list', name: 'contentSource', message: 'Content source:', choices: ['Open default editor', 'Import from file', 'In-Terminal Editor [Beta]'], default: 0 },
-            ]);
+            // --- MEP CLI INTEGRATION START ---
+            // Replaced Inquirer with MepCLI imperative calls
+            
+            const title = await MepCLI.text({ 
+                message: 'Snippet title:', 
+                initial: 'Untitled' 
+            });
 
-            if (answers.contentSource === 'Import from file') {
-                const { filePath } = await inquirer.prompt([{ type: 'input', name: 'filePath', message: 'Path to file:' }]);
+            const language = await MepCLI.text({ 
+                message: 'Language:', 
+                initial: 'plaintext' 
+            });
+
+            const visibility = await MepCLI.select({
+                message: 'Visibility:',
+                choices: [
+                    { title: 'Unlisted (Link only)', value: 'unlisted' },
+                    { title: 'Public (Searchable)', value: 'public' },
+                    { title: 'Private (You only)', value: 'private' }
+                ]
+            });
+
+            let password = '';
+            if (visibility === 'unlisted') {
+                // Only ask for password if unlisted
+                password = await MepCLI.text({ 
+                    message: 'Password (optional):',
+                    isPassword: true // Mask input
+                });
+            }
+
+            const tagsRaw = await MepCLI.text({ 
+                message: 'Tags (comma-separated):',
+                placeholder: 'e.g., code, tutorial'
+            });
+
+            const expires = await MepCLI.text({ 
+                message: 'Expiration (e.g., 1h, 7d, 2w):',
+                placeholder: 'Leave empty for never'
+            });
+
+            const contentSource = await MepCLI.select({
+                message: 'Content source:',
+                choices: [
+                    { title: 'Open default editor', value: 'editor' },
+                    { title: 'Import from file', value: 'file' },
+                    { title: 'In-Terminal Editor [Beta]', value: 'tui' }
+                ]
+            });
+
+            let content = '';
+            if (contentSource === 'file') {
+                const filePath = await MepCLI.file({ 
+                    message: 'Path to file:',
+                    basePath: process.cwd()
+                });
+                
                 if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
-                answers.content = fs.readFileSync(filePath, 'utf-8');
-            } else if (answers.contentSource === 'In-Terminal Editor [Beta]') {
-                answers.content = await openCustomTUI();
+                content = fs.readFileSync(filePath, 'utf-8');
+
+            } else if (contentSource === 'tui') {
+                content = await openCustomTUI();
             } else {
                  console.log('\nPreparing to open default editor...');
-                 answers.content = await openExternalEditor();
+                 content = await openExternalEditor();
             }
-            snippetData = answers;
+
+            snippetData = {
+                title,
+                language,
+                visibility,
+                password,
+                tags: tagsRaw,
+                expires,
+                content
+            };
+            // --- MEP CLI INTEGRATION END ---
 
         } else if (hasFileFlag) {
             if (!fs.existsSync(hasFileFlag)) throw new Error(`File not found: ${hasFileFlag}`);
@@ -126,12 +180,16 @@ async function createSnippet(token, rawArgs, parseArgs) {
             snippetData = parsedArgs;
         }
 
-        snippetData.tags = (snippetData.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+        // Clean up tags
+        if (typeof snippetData.tags === 'string') {
+            snippetData.tags = snippetData.tags.split(',').map(t => t.trim()).filter(Boolean);
+        }
+
         const newSnippet = await apiRequest('/createSnippet', 'POST', snippetData, token);
         console.log(`\n✅ Successfully created snippet! ID: ${newSnippet.id}\n`);
 
     } catch (error) {
-        if (error.message.includes('prompt was canceled') || error.message.includes('Editing operation was canceled')) {
+        if (error.message.includes('User force closed') || error.message.includes('canceled')) {
             console.log('\nOperation canceled.\n');
         } else {
             console.error(`\n❌ Error: ${error.message}\n`);
@@ -210,14 +268,18 @@ async function deleteSnippet(id, token) {
         return;
     }
     try {
-        const inquirer = await getInquirer();
-        const { confirmDelete } = await inquirer.prompt([{ type: 'confirm', name: 'confirmDelete', message: `Are you sure you want to delete snippet '${id}'?`, default: false }]);
+        // --- MEP CLI INTEGRATION ---
+        const confirmDelete = await MepCLI.confirm({ 
+            message: `Are you sure you want to delete snippet '${id}'?`, 
+            initial: false 
+        });
+
         if (confirmDelete) {
             const result = await apiRequest('/deleteSnippet', 'DELETE', { snippetId: id }, token);
             console.log(`\n✅ ${result.message}\n`);
         } else { console.log('\nDelete operation canceled.\n'); }
     } catch (error) {
-         if (error.message.includes('prompt was canceled')) {
+         if (error.message.includes('User force closed')) {
             console.log('\nExited interactive mode.\n');
          }
          else {
@@ -236,8 +298,12 @@ async function restoreSnippet(id, token) {
         return;
     }
     try {
-        const inquirer = await getInquirer();
-        const { confirm } = await inquirer.prompt([{ type: 'confirm', name: 'confirm', message: `Are you sure you want to restore snippet '${id}' from the trash?`, default: true }]);
+        // --- MEP CLI INTEGRATION ---
+        const confirm = await MepCLI.confirm({ 
+            message: `Are you sure you want to restore snippet '${id}' from the trash?`, 
+            initial: true 
+        });
+
         if (!confirm) {
             console.log('\nOperation canceled.\n');
             return;
@@ -245,7 +311,7 @@ async function restoreSnippet(id, token) {
         const result = await apiRequest('/restoreSnippet', 'POST', { snippetId: id }, token);
         console.log(`\n✅ ${result.message}\n`);
     } catch (error) {
-        if (error.message.includes('prompt was canceled')) {
+        if (error.message.includes('User force closed')) {
             console.log('\nExited interactive mode.\n');
         } else {
             console.error(`\n❌ Error restoring snippet: ${error.message}\n`);
@@ -509,13 +575,12 @@ async function runSnippet(id, customStartup, token, rawArgs, parseArgs) {
     }
     const parsedArgs = parseArgs(rawArgs);
     if (!parsedArgs.force && !parsedArgs.f) {
-        const inquirer = await getInquirer();
-        const { confirm } = await inquirer.prompt([{
-            type: 'confirm',
-            name: 'confirm',
-            message: '⚠️ Warning: You are about to execute code from the internet. This can be dangerous. Are you sure you want to continue?',
-            default: false,
-        }]);
+        // --- MEP CLI INTEGRATION ---
+        const confirm = await MepCLI.confirm({ 
+            message: '⚠️ Warning: You are about to execute code from the internet. Are you sure?', 
+            initial: false 
+        });
+
         if (!confirm) {
             console.log('\nOperation canceled.\n');
             return;
@@ -547,14 +612,12 @@ async function runSnippet(id, customStartup, token, rawArgs, parseArgs) {
         if (parsedArgs['install-deps']) {
             const deps = await detectDependencies(contentForDepDetection, language);
             if (deps.length > 0) {
-                const inquirer = await getInquirer();
-                const { confirm } = await inquirer.prompt([{
-                    type: 'confirm',
-                    name: 'confirm',
-                    message: `Detected dependencies: ${deps.join(', ')}. Do you want to install them in a temporary environment?`,
-                    default: true,
-                }]);
-                if (confirm) {
+                // --- MEP CLI INTEGRATION ---
+                const confirmInstall = await MepCLI.confirm({
+                    message: `Detected dependencies: ${deps.join(', ')}. Install in temp env?`,
+                    initial: true
+                });
+                if (confirmInstall) {
                     await installDependencies(deps, language, tempDir, parsedArgs);
                 }
             }

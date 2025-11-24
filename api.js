@@ -5,14 +5,14 @@ const { default: fetch } = require('node-fetch');
 const ConfigManager = require('./config-manager');
 const logger = require('./logger');
 const { spawn } = require('child_process');
+const { MepCLI } = require('mepcli'); // Import MepCLI directly
 
 const BASE_API_URL = 'https://paste-api.teaserverse.online';
 const BASE_WEB_URL = 'https://paste.teaserverse.online';
 
 // --- HANDLERS AND HELPERS ---
 
-// Dynamic import of ESM libraries
-async function getInquirer() { const { default: inquirer } = await import('inquirer'); return inquirer; }
+// Dynamic import of ESM libraries (clipboardy is still ESM)
 async function getClipboardy() { const { default: clipboardy } = await import('clipboardy'); return clipboardy; }
 
 // Read content from stdin
@@ -113,7 +113,7 @@ function parseDuration(durationStr) {
     return value * multipliers[unit];
 }
 
-// Open external editor
+// Open external editor (Using MepCLI to pause the screen)
 async function openExternalEditor(initialContent = '') {
     return new Promise((resolve, reject) => {
         const tempFile = path.join(os.tmpdir(), `tp-editor-${Date.now()}.tmp`);
@@ -125,19 +125,27 @@ async function openExternalEditor(initialContent = '') {
         });
         child.unref();
         console.log(`\nEditor opened. Please save and close it.`);
-        const inquirerPromise = getInquirer().then(inquirer => inquirer.prompt([{ type: 'confirm', name: 'done', message: 'Press Enter when you are done editing:' }]));
-        inquirerPromise.then(answers => {
-            if (answers.done) {
+        
+        // Replaced Inquirer with MepCLI.text to pause
+        MepCLI.text({ 
+            message: "Press Enter when you are done editing...", 
+            initial: "" 
+        }).then(() => {
+             try {
                  const content = fs.readFileSync(tempFile, 'utf-8');
                  fs.unlinkSync(tempFile);
                  resolve(content);
-            } else {
-                 fs.unlinkSync(tempFile);
-                 reject(new Error(`Editing operation was canceled.`));
-            }
+             } catch (err) {
+                 // File might be deleted or read error
+                 reject(new Error("Could not read from temporary file. Did you save it?"));
+             }
+        }).catch(err => {
+             if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+             reject(new Error(`Editing operation was canceled.`));
         });
+
         child.on('error', (err) => {
-             fs.unlinkSync(tempFile);
+             if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
              reject(err);
         });
     });
@@ -146,7 +154,6 @@ async function openExternalEditor(initialContent = '') {
 module.exports = {
     BASE_API_URL,
     BASE_WEB_URL,
-    getInquirer,
     getClipboardy,
     readFromStdin,
     apiRequest,
