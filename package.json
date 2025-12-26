@@ -1,6 +1,6 @@
 {
   "name": "teaserpaste-cli",
-  "version": "0.6.9",
+  "version": "0.7.0",
   "description": "CLI Client for TeaserPaste - View, create, and manage snippets.",
   "license": "MIT",
   "author": {
@@ -23,11 +23,11 @@
     "build-mac": "bun build ./cli.js --compile --target=bun-darwin-x64 --outfile dist/tp-macos"
   },
   "dependencies": {
-    "clipboardy": "^5.0.0",
-    "mepcli": "^0.2.5",
+    "clipboardy": "^5.0.2",
+    "mepcli": "^0.2.6",
     "keytar": "^7.9.0",
-    "node-fetch": "^2.7.0",
-    "cliedit": "^0.1.3"
+    "node-fetch": "^3.3.2",
+    "cliedit": "^0.2.0"
   },
   "preferGlobal": true
 }
