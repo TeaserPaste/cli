@@ -6,10 +6,16 @@ let keytar;
 async function getKeytar() {
     if (keytar) return keytar;
     try {
-        keytar = await import('keytar');
+        const ktModule = await import('keytar');
+        keytar = ktModule.setPassword ? ktModule : ktModule.default;
+        
+        if (!keytar || typeof keytar.setPassword !== 'function') {
+            throw new Error('Keytar API not found in imported module');
+        }
+        
         return keytar;
     } catch (err) {
-        logger.error('Could not load keytar library. Token will not be stored securely.', err);
+        logger.error('Could not load keytar library:', err);
         return null;
     }
 }
