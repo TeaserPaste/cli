@@ -4,6 +4,8 @@
 
 **Current Version:** 0.7.1 (Beta) - Please note that features and syntax are subject to change.
 
+**THIS PROJECT IS ARCHIVED, CHECKOUT NEW CLI [HERE](https://github.com/TeaserPaste/tpcli)**
+
 ## Installation
 
 - Requires [Node.js](https://nodejs.org/en/download) v18 or higher.
